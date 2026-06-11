@@ -1,12 +1,36 @@
-﻿// Client-side database layer.
+// Client-side database layer.
 // Stores data in localStorage by default.
 // If Firebase is configured, all reads/writes also sync with Firestore.
 
-import { getFirebaseDb } from "./firebase";
+import { getFirebaseDb, getFirebaseInitError } from "./firebase";
 import {
   collection, doc, getDocs, setDoc, updateDoc,
-  addDoc, query, orderBy, where, deleteDoc, Timestamp
+  addDoc, query, orderBy, where, deleteDoc, Timestamp, limit
 } from "firebase/firestore";
+
+// Error tracking for live DB connection status
+function setLastDbError(err: unknown) {
+  const msg = err instanceof Error ? err.message : err ? String(err) : null;
+  if (typeof window !== "undefined") {
+    const prev = window.sessionStorage.getItem("lfl-last-db-error");
+    if (msg) {
+      window.sessionStorage.setItem("lfl-last-db-error", msg);
+    } else {
+      window.sessionStorage.removeItem("lfl-last-db-error");
+    }
+    if (prev !== msg) {
+      window.dispatchEvent(new CustomEvent("lfl-db-status-change"));
+    }
+  }
+}
+
+export function getLastDbError(): string | null {
+  if (typeof window === "undefined") return null;
+  const initError = getFirebaseInitError();
+  if (initError) return `Init Error: ${initError}`;
+  return window.sessionStorage.getItem("lfl-last-db-error");
+}
+
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -110,8 +134,14 @@ export function setCurrentUser(u: SessionUser | null) {
 export async function getBooks(): Promise<Book[]> {
   const fbDb = getFirebaseDb();
   if (fbDb) {
-    const snap = await getDocs(collection(fbDb, "books"));
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Book));
+    try {
+      const snap = await getDocs(collection(fbDb, "books"));
+      setLastDbError(null);
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as Book));
+    } catch (err) {
+      setLastDbError(err);
+      console.error("Firestore getBooks error, falling back to local:", err);
+    }
   }
   return readLocal().books;
 }
@@ -125,8 +155,14 @@ export async function addBook(book: Omit<Book, "id" | "addedAt">): Promise<Book>
   const fbDb = getFirebaseDb();
   const addedAt = new Date().toISOString();
   if (fbDb) {
-    const ref = await addDoc(collection(fbDb, "books"), { ...book, addedAt });
-    return { id: ref.id, ...book, addedAt };
+    try {
+      const ref = await addDoc(collection(fbDb, "books"), { ...book, addedAt });
+      setLastDbError(null);
+      return { id: ref.id, ...book, addedAt };
+    } catch (err) {
+      setLastDbError(err);
+      console.error("Firestore addBook error, falling back to local:", err);
+    }
   }
   const db = readLocal();
   const nb: Book = { ...book, id: `book-${Date.now()}`, addedAt };
@@ -138,9 +174,15 @@ export async function addBook(book: Omit<Book, "id" | "addedAt">): Promise<Book>
 export async function updateBook(id: string, updates: Partial<Book>): Promise<Book> {
   const fbDb = getFirebaseDb();
   if (fbDb) {
-    await updateDoc(doc(fbDb, "books", id), updates as Record<string, unknown>);
-    const books = await getBooks();
-    return books.find(b => b.id === id)!;
+    try {
+      await updateDoc(doc(fbDb, "books", id), updates as Record<string, unknown>);
+      setLastDbError(null);
+      const books = await getBooks();
+      return books.find(b => b.id === id)!;
+    } catch (err) {
+      setLastDbError(err);
+      console.error("Firestore updateBook error, falling back to local:", err);
+    }
   }
   const db = readLocal();
   const i = db.books.findIndex(b => b.id === id);
@@ -152,7 +194,16 @@ export async function updateBook(id: string, updates: Partial<Book>): Promise<Bo
 
 export async function deleteBook(id: string): Promise<void> {
   const fbDb = getFirebaseDb();
-  if (fbDb) { await deleteDoc(doc(fbDb, "books", id)); return; }
+  if (fbDb) {
+    try {
+      await deleteDoc(doc(fbDb, "books", id));
+      setLastDbError(null);
+      return;
+    } catch (err) {
+      setLastDbError(err);
+      console.error("Firestore deleteBook error, falling back to local:", err);
+    }
+  }
   const db = readLocal();
   db.books = db.books.filter(b => b.id !== id);
   writeLocal(db);
@@ -163,10 +214,16 @@ export async function deleteBook(id: string): Promise<void> {
 export async function getUserByUsername(username: string): Promise<User | undefined> {
   const fbDb = getFirebaseDb();
   if (fbDb) {
-    const snap = await getDocs(query(collection(fbDb, "users"), where("username", "==", username.toLowerCase())));
-    if (snap.empty) return undefined;
-    const d = snap.docs[0];
-    return { id: d.id, ...d.data() } as User;
+    try {
+      const snap = await getDocs(query(collection(fbDb, "users"), where("username", "==", username.toLowerCase())));
+      setLastDbError(null);
+      if (snap.empty) return undefined;
+      const d = snap.docs[0];
+      return { id: d.id, ...d.data() } as User;
+    } catch (err) {
+      setLastDbError(err);
+      console.error("Firestore getUserByUsername error, falling back to local:", err);
+    }
   }
   return readLocal().users.find(u => u.username.toLowerCase() === username.toLowerCase());
 }
@@ -174,8 +231,14 @@ export async function getUserByUsername(username: string): Promise<User | undefi
 export async function addUser(user: Omit<User, "id">): Promise<User> {
   const fbDb = getFirebaseDb();
   if (fbDb) {
-    const ref = await addDoc(collection(fbDb, "users"), user);
-    return { id: ref.id, ...user };
+    try {
+      const ref = await addDoc(collection(fbDb, "users"), user);
+      setLastDbError(null);
+      return { id: ref.id, ...user };
+    } catch (err) {
+      setLastDbError(err);
+      console.error("Firestore addUser error, falling back to local:", err);
+    }
   }
   const db = readLocal();
   const nu: User = { ...user, id: `user-${Date.now()}` };
@@ -189,8 +252,14 @@ export async function addUser(user: Omit<User, "id">): Promise<User> {
 export async function getComments(): Promise<Comment[]> {
   const fbDb = getFirebaseDb();
   if (fbDb) {
-    const snap = await getDocs(query(collection(fbDb, "comments"), orderBy("createdAt", "desc")));
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Comment));
+    try {
+      const snap = await getDocs(query(collection(fbDb, "comments"), orderBy("createdAt", "desc")));
+      setLastDbError(null);
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as Comment));
+    } catch (err) {
+      setLastDbError(err);
+      console.error("Firestore getComments error, falling back to local:", err);
+    }
   }
   return [...readLocal().comments];
 }
@@ -199,8 +268,14 @@ export async function addComment(c: Omit<Comment, "id" | "createdAt">): Promise<
   const fbDb = getFirebaseDb();
   const createdAt = new Date().toISOString();
   if (fbDb) {
-    const ref = await addDoc(collection(fbDb, "comments"), { ...c, createdAt });
-    return { id: ref.id, ...c, createdAt };
+    try {
+      const ref = await addDoc(collection(fbDb, "comments"), { ...c, createdAt });
+      setLastDbError(null);
+      return { id: ref.id, ...c, createdAt };
+    } catch (err) {
+      setLastDbError(err);
+      console.error("Firestore addComment error, falling back to local:", err);
+    }
   }
   const db = readLocal();
   const nc: Comment = { ...c, id: `comment-${Date.now()}`, createdAt };
@@ -211,8 +286,77 @@ export async function addComment(c: Omit<Comment, "id" | "createdAt">): Promise<
 
 export async function deleteComment(id: string): Promise<void> {
   const fbDb = getFirebaseDb();
-  if (fbDb) { await deleteDoc(doc(fbDb, "comments", id)); return; }
+  if (fbDb) {
+    try {
+      await deleteDoc(doc(fbDb, "comments", id));
+      setLastDbError(null);
+      return;
+    } catch (err) {
+      setLastDbError(err);
+      console.error("Firestore deleteComment error, falling back to local:", err);
+    }
+  }
   const db = readLocal();
   db.comments = db.comments.filter(c => c.id !== id);
   writeLocal(db);
+}
+
+// ─── Diagnostics ─────────────────────────────────────────────────────────────
+
+export interface FirebaseTestResult {
+  configPresent: boolean;
+  initialized: boolean;
+  readSuccess: boolean;
+  writeSuccess: boolean;
+  error?: string;
+  projectId?: string;
+}
+
+export async function testFirebaseConnection(): Promise<FirebaseTestResult> {
+  const result: FirebaseTestResult = {
+    configPresent: false,
+    initialized: false,
+    readSuccess: false,
+    writeSuccess: false,
+  };
+
+  const fbDb = getFirebaseDb();
+  if (!fbDb) {
+    const initErr = getFirebaseInitError();
+    if (initErr) {
+      result.configPresent = true;
+      result.error = `Initialization failed: ${initErr}`;
+      return result;
+    }
+    result.error = "No Firebase configuration found. Please enter credentials in Settings.";
+    return result;
+  }
+
+  result.configPresent = true;
+  result.initialized = true;
+  result.projectId = fbDb.app.options.projectId ?? "unknown";
+
+  try {
+    // Test Read: Query 1 document from the books collection
+    const testQuery = query(collection(fbDb, "books"), limit(1));
+    await getDocs(testQuery);
+    result.readSuccess = true;
+  } catch (err) {
+    result.error = `Read test failed: ${err instanceof Error ? err.message : String(err)}`;
+    return result;
+  }
+
+  try {
+    // Test Write: Add and then delete a document in the "_connection_test" collection
+    const tempDocRef = doc(collection(fbDb, "_connection_test"), "temp-write-test");
+    await setDoc(tempDocRef, { testedAt: new Date().toISOString(), test: true });
+    result.writeSuccess = true;
+    
+    // Clean up
+    await deleteDoc(tempDocRef);
+  } catch (err) {
+    result.error = `Write test failed: ${err instanceof Error ? err.message : String(err)}`;
+  }
+
+  return result;
 }

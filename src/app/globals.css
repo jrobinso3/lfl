@@ -99,6 +99,12 @@ body {
   border: 1px solid rgba(244, 114, 182, 0.2);
   color: var(--accent3);
 }
+.db-status-badge.error {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #f87171;
+}
+
 
 /* ── Page content ── */
 .page { flex: 1; padding: 20px; padding-bottom: 100px; }

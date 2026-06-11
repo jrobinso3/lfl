@@ -4,7 +4,18 @@ import Link from "next/link";
 import TabBar from "@/components/TabBar";
 import DbStatus from "@/components/DbStatus";
 import { saveFirebaseConfig, clearFirebaseConfig } from "@/lib/firebase";
-import { getBooks, getComments, updateBook, deleteBook, deleteComment, getCurrentUser, type Book, type Comment } from "@/lib/db";
+import {
+  getBooks,
+  getComments,
+  updateBook,
+  deleteBook,
+  deleteComment,
+  getCurrentUser,
+  testFirebaseConnection,
+  type Book,
+  type Comment,
+  type FirebaseTestResult
+} from "@/lib/db";
 
 export default function AdminPage() {
   const [me, setMe] = useState<ReturnType<typeof getCurrentUser>|undefined>(undefined);
@@ -20,6 +31,26 @@ export default function AdminPage() {
     messagingSenderId: "",
     appId: ""
   });
+  const [testResult, setTestResult] = useState<FirebaseTestResult | null>(null);
+  const [testingConnection, setTestingConnection] = useState(false);
+
+  const runDiagnostics = useCallback(async () => {
+    setTestingConnection(true);
+    try {
+      const res = await testFirebaseConnection();
+      setTestResult(res);
+    } catch (err) {
+      setTestResult({
+        configPresent: true,
+        initialized: false,
+        readSuccess: false,
+        writeSuccess: false,
+        error: err instanceof Error ? err.message : String(err)
+      });
+    }
+    setTestingConnection(false);
+  }, []);
+
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -51,6 +82,12 @@ export default function AdminPage() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (activeTab === "settings") {
+      runDiagnostics();
+    }
+  }, [activeTab, runDiagnostics]);
 
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
@@ -181,6 +218,72 @@ export default function AdminPage() {
             <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: 20, lineHeight: 1.6 }}>
               Enter your Firebase credentials below to enable multi-device real-time synchronization. If empty, the website runs in <strong>LocalStorage Fallback Mode</strong> (only saving data on the local browser).
             </p>
+            {activeTab === "settings" && (
+              <div className="diagnostics-card" style={{ marginBottom: "24px", padding: "16px", borderRadius: "10px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)", boxShadow: "inset 0 1px 1px rgba(255,255,255,0.05)" }}>
+                <h4 style={{ marginBottom: 16, fontWeight: 600, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.95rem" }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>🔍 Connection Diagnostics</span>
+                  <button type="button" onClick={runDiagnostics} className="btn btn-sm" disabled={testingConnection} style={{ padding: "6px 12px", fontSize: "0.75rem", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "4px", cursor: "pointer", color: "var(--text)" }}>
+                    {testingConnection ? "Testing..." : "Test Connection"}
+                  </button>
+                </h4>
+                {testingConnection ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: "0.85rem", color: "var(--text-muted)", padding: "10px 0" }}>
+                    <div className="spinner" style={{ width: 16, height: 16, borderWidth: 2, margin: 0 }} /> Testing Firestore operations...
+                  </div>
+                ) : testResult ? (
+                  <div style={{ fontSize: "0.85rem", display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                      <span style={{ color: "var(--text-muted)" }}>Firebase Credentials:</span>
+                      <span style={{ fontWeight: 600, color: testResult.configPresent ? "var(--accent)" : "var(--accent3)" }}>
+                        {testResult.configPresent ? "📋 Configured" : "🔌 Missing (Local Mode)"}
+                      </span>
+                    </div>
+                    {testResult.configPresent && (
+                      <>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                          <span style={{ color: "var(--text-muted)" }}>SDK Initialization:</span>
+                          <span style={{ fontWeight: 600, color: testResult.initialized ? "var(--accent)" : "#f87171" }}>
+                            {testResult.initialized ? "⚙️ Ready" : "✗ Failed"}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                          <span style={{ color: "var(--text-muted)" }}>Database Read:</span>
+                          <span style={{ fontWeight: 600, color: testResult.readSuccess ? "var(--accent)" : "#f87171" }}>
+                            {testResult.readSuccess ? "📖 Authorized & Working" : "✗ Access Denied / Failed"}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ color: "var(--text-muted)" }}>Database Write:</span>
+                          <span style={{ fontWeight: 600, color: testResult.writeSuccess ? "var(--accent)" : "#f87171" }}>
+                            {testResult.writeSuccess ? "✍️ Authorized & Working" : "✗ Access Denied / Failed"}
+                          </span>
+                        </div>
+                      </>
+                    )}
+                    {testResult.projectId && (
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", background: "rgba(0,0,0,0.15)", padding: "8px 12px", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.03)", marginTop: 6 }}>
+                        Project ID: <code style={{ color: "var(--accent2)" }}>{testResult.projectId}</code>
+                      </div>
+                    )}
+                    {testResult.error && (
+                      <div className="alert alert-error" style={{ fontSize: "0.8rem", padding: "12px", marginTop: 8, wordBreak: "break-word", background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.15)", color: "#fca5a5" }}>
+                        <div style={{ fontWeight: 600, marginBottom: 4 }}>⚠️ Error details:</div>
+                        <div style={{ fontFamily: "monospace", opacity: 0.9 }}>{testResult.error}</div>
+                        {testResult.error.includes("permission-denied") && (
+                          <div style={{ marginTop: 10, fontSize: "0.75rem", lineHeight: 1.4, opacity: 0.9, color: "var(--text)", background: "rgba(0,0,0,0.2)", padding: "8px", borderRadius: "4px" }}>
+                            💡 <strong>Action Required:</strong> Your Firestore security rules are blocking anonymous reads/writes.
+                            Go to your Firebase Console -&gt; Firestore Database -&gt; Rules, and update them to:
+                            <pre style={{ margin: "6px 0 0 0", padding: "6px", background: "rgba(0,0,0,0.3)", borderRadius: "4px", overflowX: "auto", fontFamily: "monospace", fontSize: "0.7rem", color: "var(--accent)" }}>{`allow read, write: if true;`}</pre>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>Diagnostics not run. Click button to test.</div>
+                )}
+              </div>
+            )}
             <form onSubmit={handleSaveSettings}>
               <div className="form-group">
                 <label className="form-label">API Key</label>

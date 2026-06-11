@@ -42,6 +42,11 @@ function getConfig(): FirebaseConfig | null {
 
 let app: FirebaseApp | null = null;
 let db: Firestore | null = null;
+let initError: string | null = null;
+
+export function getFirebaseInitError(): string | null {
+  return initError;
+}
 
 export function getFirebaseDb(): Firestore | null {
   if (typeof window === "undefined") return null;
@@ -51,8 +56,14 @@ export function getFirebaseDb(): Firestore | null {
   try {
     app = getApps().length ? getApps()[0] : initializeApp(config);
     db = getFirestore(app);
+    initError = null;
     return db;
-  } catch {
+  } catch (err) {
+    initError = err instanceof Error ? err.message : String(err);
+    console.error("Firebase initialization failed:", err);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("lfl-db-status-change"));
+    }
     return null;
   }
 }
