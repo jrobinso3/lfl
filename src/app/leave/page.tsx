@@ -66,7 +66,7 @@ export default function LeavePage() {
 
       // 2. Initialize Html5QrcodeScanner
       try {
-        const { Html5QrcodeScanner } = await import("html5-qrcode");
+        const { Html5QrcodeScanner, Html5QrcodeSupportedFormats } = await import("html5-qrcode");
         if (!isMounted) return;
 
         // Ensure target element exists in DOM
@@ -78,7 +78,21 @@ export default function LeavePage() {
 
         scannerInstance = new Html5QrcodeScanner(
           "leave-scanner",
-          { fps: 10, qrbox: { width: 250, height: 150 } },
+          { 
+            fps: 10, 
+            qrbox: { width: 280, height: 160 },
+            formatsToSupport: [
+              Html5QrcodeSupportedFormats.EAN_13,
+              Html5QrcodeSupportedFormats.EAN_8,
+              Html5QrcodeSupportedFormats.UPC_A,
+              Html5QrcodeSupportedFormats.UPC_E,
+              Html5QrcodeSupportedFormats.CODE_128,
+              Html5QrcodeSupportedFormats.QR_CODE
+            ],
+            experimentalFeatures: {
+              useBarCodeDetectorIfSupported: true
+            }
+          },
           /* verbose= */ false
         );
         scannerRef.current = scannerInstance;
