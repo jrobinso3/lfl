@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import TabBar from "@/components/TabBar";
+import DbStatus from "@/components/DbStatus";
 import { getComments, addComment, getCurrentUser, type Comment } from "@/lib/db";
 
 export default function CommunityPage() {
@@ -48,7 +49,12 @@ export default function CommunityPage() {
 
   return (
     <div className="app-shell">
-      <header className="nav"><span className="nav-logo">💬 Community</span></header>
+      <header className="nav">
+        <span className="nav-logo">💬 Community</span>
+        <div className="nav-actions">
+          <DbStatus />
+        </div>
+      </header>
       <main className="page fade-up">
         {me ? (
           <div className="card" style={{marginBottom:20}}>

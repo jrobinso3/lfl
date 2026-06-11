@@ -1,6 +1,7 @@
-﻿"use client";
+"use client";
 import { useState, useEffect } from "react";
 import TabBar from "@/components/TabBar";
+import DbStatus from "@/components/DbStatus";
 import {
   getCurrentUser, setCurrentUser, getUserByUsername, addUser, hashPassword,
   type SessionUser
@@ -52,7 +53,12 @@ export default function AuthPage() {
 
   return (
     <div className="app-shell">
-      <header className="nav"><span className="nav-logo">👤 Account</span></header>
+      <header className="nav">
+        <span className="nav-logo">👤 Account</span>
+        <div className="nav-actions">
+          <DbStatus />
+        </div>
+      </header>
       <main className="page fade-up">
         {me ? (
           <div>

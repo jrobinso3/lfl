@@ -1,7 +1,8 @@
-﻿"use client";
+"use client";
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import TabBar from "@/components/TabBar";
+import DbStatus from "@/components/DbStatus";
 import { getBooks, type Book } from "@/lib/db";
 
 export default function HomePage() {
@@ -33,6 +34,7 @@ export default function HomePage() {
       <header className="nav">
         <span className="nav-logo">📚 ReposiStory LFL</span>
         <div className="nav-actions">
+          <DbStatus />
           <Link href="/admin" className="nav-btn">Admin</Link>
         </div>
       </header>

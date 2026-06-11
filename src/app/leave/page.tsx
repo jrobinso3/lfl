@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import TabBar from "@/components/TabBar";
+import DbStatus from "@/components/DbStatus";
 import { getBookByIsbn, addBook, getCurrentUser, type Book } from "@/lib/db";
 
 export default function LeavePage() {
@@ -322,6 +323,9 @@ export default function LeavePage() {
     <div className="app-shell">
       <header className="nav">
         <span className="nav-logo">📥 Leave a Book</span>
+        <div className="nav-actions">
+          <DbStatus />
+        </div>
       </header>
       <main className="page fade-up">
         <div className="card" style={{marginBottom: 20}}>
