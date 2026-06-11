@@ -1,5 +1,6 @@
-﻿"use client";
+"use client";
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import TabBar from "@/components/TabBar";
 import { getComments, addComment, getCurrentUser, type Comment } from "@/lib/db";
 
@@ -69,7 +70,7 @@ export default function CommunityPage() {
           </div>
         ) : (
           <div className="alert alert-info" style={{marginBottom:20}}>
-            👤 <a href="/auth" style={{color:"var(--accent2)"}}>Sign in</a> to leave a comment or request a book.
+            👤 <Link href="/auth" style={{color:"var(--accent2)"}}>Sign in</Link> to leave a comment or request a book.
           </div>
         )}
 

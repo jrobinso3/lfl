@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import { useState, useEffect, useRef } from "react";
 import TabBar from "@/components/TabBar";
 import { getBookByIsbn, addBook, getCurrentUser, type Book } from "@/lib/db";
@@ -11,29 +11,117 @@ export default function LeavePage() {
   const [loading, setLoading] = useState(false);
   const scannerRef = useRef<unknown>(null);
 
+  const stopScanner = async () => {
+    if (scannerRef.current) {
+      try {
+        await (scannerRef.current as any).clear();
+      } catch (err) {
+        console.error("Failed to clear scanner:", err);
+      }
+      scannerRef.current = null;
+    }
+    setScanning(false);
+  };
+
   useEffect(() => {
-    return () => {
-      if (scannerRef.current) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (scannerRef.current as any).stop?.().catch?.(() => {});
+    if (!scanning) return;
+
+    let isMounted = true;
+    let scannerInstance: any = null;
+
+    const initScanner = async () => {
+      // 1. Pre-flight permission check to verify browser supports it and user allows it
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        if (isMounted) {
+          setResult({
+            type: "error",
+            msg: "Camera scanning is not supported on this browser/connection. Please verify HTTPS is active or enter the ISBN manually."
+          });
+          setScanning(false);
+        }
+        return;
+      }
+
+      try {
+        // Request permission and capture video stream temporarily to verify access
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        // Stop stream immediately to free it up for html5-qrcode
+        stream.getTracks().forEach(track => track.stop());
+      } catch (err: any) {
+        console.error("Camera permission check failed:", err);
+        if (isMounted) {
+          let errorMsg = "Camera access denied. Please allow camera access in browser settings.";
+          if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+            errorMsg = "Camera permission denied. Please enable camera access in your browser settings and try again.";
+          } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+            errorMsg = "No camera hardware detected on this device.";
+          } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+            errorMsg = "Camera is already in use by another app or tab.";
+          }
+          setResult({ type: "error", msg: errorMsg });
+          setScanning(false);
+        }
+        return;
+      }
+
+      // 2. Initialize Html5QrcodeScanner
+      try {
+        const { Html5QrcodeScanner } = await import("html5-qrcode");
+        if (!isMounted) return;
+
+        // Ensure target element exists in DOM
+        const targetEl = document.getElementById("leave-scanner");
+        if (!targetEl) {
+          console.warn("Scanner target element not in DOM yet.");
+          return;
+        }
+
+        scannerInstance = new Html5QrcodeScanner(
+          "leave-scanner",
+          { fps: 10, qrbox: { width: 250, height: 150 } },
+          /* verbose= */ false
+        );
+        scannerRef.current = scannerInstance;
+
+        scannerInstance.render(
+          (decoded: string) => {
+            if (isMounted) {
+              setIsbn(decoded);
+              stopScanner();
+            }
+          },
+          () => {
+            // Frame parsing errors are silent to prevent logs flooding
+          }
+        );
+      } catch (err) {
+        console.error("Scanner setup failed:", err);
+        if (isMounted) {
+          setResult({ type: "error", msg: "Failed to load/initialize the camera scanner." });
+          setScanning(false);
+        }
       }
     };
-  }, []);
 
-  const startScanner = async () => {
-    const { Html5QrcodeScanner } = await import("html5-qrcode");
+    // Delay initialization slightly to let React complete the DOM render cycle
+    const timer = setTimeout(initScanner, 80);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+      if (scannerInstance) {
+        try {
+          scannerInstance.clear().catch(() => {});
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, [scanning]);
+
+  const startScanner = () => {
     setScanning(true);
     setResult(null);
-    const scanner = new Html5QrcodeScanner("leave-scanner", { fps: 10, qrbox: { width: 250, height: 150 } }, false);
-    scannerRef.current = scanner;
-    scanner.render(
-      (decoded: string) => {
-        setIsbn(decoded);
-        scanner.clear();
-        setScanning(false);
-      },
-      () => {}
-    );
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -93,9 +181,27 @@ export default function LeavePage() {
         </div>
 
         {/* Scanner */}
-        <div className={`scanner-box${scanning ? " active" : ""}`}>
+        <div className={`scanner-box${scanning ? " active" : ""}`} style={{ position: "relative" }}>
           {scanning ? (
-            <div id="leave-scanner" style={{width:"100%"}} />
+            <>
+              <div id="leave-scanner" style={{width:"100%"}} />
+              <button 
+                className="btn btn-danger btn-sm" 
+                style={{ 
+                  position: "absolute", 
+                  top: "10px", 
+                  right: "10px", 
+                  zIndex: 10,
+                  width: "auto",
+                  padding: "6px 12px",
+                  borderRadius: "20px"
+                }} 
+                type="button"
+                onClick={stopScanner}
+              >
+                ✕ Cancel Scan
+              </button>
+            </>
           ) : (
             <>
               <span style={{fontSize:"3rem"}}>📷</span>
