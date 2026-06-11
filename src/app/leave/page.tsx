@@ -14,9 +14,9 @@ export default function LeavePage() {
   const stopScanner = async () => {
     if (scannerRef.current) {
       try {
-        await (scannerRef.current as any).clear();
+        await (scannerRef.current as any).stop();
       } catch (err) {
-        console.error("Failed to clear scanner:", err);
+        console.error("Failed to stop scanner:", err);
       }
       scannerRef.current = null;
     }
@@ -42,11 +42,10 @@ export default function LeavePage() {
         return;
       }
 
+      // Request permission using standard back camera constraints to prompt user
+      let tempStream: MediaStream | null = null;
       try {
-        // Request permission and capture video stream temporarily to verify access
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-        // Stop stream immediately to free it up for html5-qrcode
-        stream.getTracks().forEach(track => track.stop());
+        tempStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
       } catch (err: any) {
         console.error("Camera permission check failed:", err);
         if (isMounted) {
@@ -64,9 +63,60 @@ export default function LeavePage() {
         return;
       }
 
-      // 2. Initialize Html5QrcodeScanner
+      // Enumerate devices to select the rear camera with the closest focus distance
+      let chosenDeviceId: string | null = null;
       try {
-        const { Html5QrcodeScanner, Html5QrcodeSupportedFormats } = await import("html5-qrcode");
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === "videoinput");
+
+        // Filter for back/rear/environment cameras
+        const backCameras = videoDevices.filter(d => {
+          const label = d.label.toLowerCase();
+          return label.includes("back") || label.includes("rear") || label.includes("environment");
+        });
+
+        const candidates = backCameras.length > 0 ? backCameras : videoDevices;
+
+        // Query capabilities to find the closest focus distance
+        let closestFocus = Infinity;
+
+        for (const device of candidates) {
+          try {
+            const testStream = await navigator.mediaDevices.getUserMedia({
+              video: { deviceId: { exact: device.deviceId } }
+            });
+            const track = testStream.getVideoTracks()[0];
+            if (track) {
+              const capabilities = track.getCapabilities() as any;
+              if (capabilities.focusDistance && typeof capabilities.focusDistance.min === "number") {
+                const minFocus = capabilities.focusDistance.min;
+                if (minFocus < closestFocus) {
+                  closestFocus = minFocus;
+                  chosenDeviceId = device.deviceId;
+                }
+              }
+              track.stop();
+            }
+          } catch (err) {
+            console.warn(`Could not query capabilities for camera: ${device.label}`, err);
+          }
+        }
+
+        // Default to the first back camera if no focus distance capabilities could be read
+        if (!chosenDeviceId && candidates.length > 0) {
+          chosenDeviceId = candidates[0].deviceId;
+        }
+      } catch (err) {
+        console.error("Failed to select best camera:", err);
+      } finally {
+        if (tempStream) {
+          tempStream.getTracks().forEach(track => track.stop());
+        }
+      }
+
+      // 2. Initialize Html5Qrcode
+      try {
+        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode");
         if (!isMounted) return;
 
         // Ensure target element exists in DOM
@@ -76,8 +126,11 @@ export default function LeavePage() {
           return;
         }
 
-        scannerInstance = new Html5QrcodeScanner(
-          "leave-scanner",
+        scannerInstance = new Html5Qrcode("leave-scanner");
+        scannerRef.current = scannerInstance;
+
+        await scannerInstance.start(
+          chosenDeviceId || { facingMode: "environment" },
           { 
             fps: 10, 
             qrbox: { width: 280, height: 160 },
@@ -93,11 +146,6 @@ export default function LeavePage() {
               useBarCodeDetectorIfSupported: true
             }
           },
-          /* verbose= */ false
-        );
-        scannerRef.current = scannerInstance;
-
-        scannerInstance.render(
           (decoded: string) => {
             if (isMounted) {
               setIsbn(decoded);
@@ -108,6 +156,16 @@ export default function LeavePage() {
             // Frame parsing errors are silent to prevent logs flooding
           }
         );
+
+        // Try to apply continuous autofocus if supported
+        try {
+          await scannerInstance.applyVideoConstraints({
+            focusMode: "continuous"
+          } as any);
+        } catch {
+          // ignore
+        }
+
       } catch (err) {
         console.error("Scanner setup failed:", err);
         if (isMounted) {
@@ -125,7 +183,7 @@ export default function LeavePage() {
       clearTimeout(timer);
       if (scannerInstance) {
         try {
-          scannerInstance.clear().catch(() => {});
+          scannerInstance.stop().catch(() => {});
         } catch {
           // ignore
         }
