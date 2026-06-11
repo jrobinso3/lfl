@@ -1,0 +1,58 @@
+{
+  "books": [
+    {
+      "id": "book-1",
+      "isbn": "9780140449136",
+      "title": "The Odyssey",
+      "author": "Homer",
+      "coverUrl": "https://covers.openlibrary.org/b/isbn/9780140449136-L.jpg",
+      "status": "available",
+      "borrowedBy": null,
+      "borrowedAt": null,
+      "addedBy": "system",
+      "addedAt": "2026-06-09T20:00:00.000Z"
+    },
+    {
+      "id": "book-2",
+      "isbn": "9780451524935",
+      "title": "1984",
+      "author": "George Orwell",
+      "coverUrl": "https://covers.openlibrary.org/b/isbn/9780451524935-L.jpg",
+      "status": "available",
+      "borrowedBy": null,
+      "borrowedAt": null,
+      "addedBy": "system",
+      "addedAt": "2026-06-09T20:00:00.000Z"
+    },
+    {
+      "id": "book-3",
+      "isbn": "9780316769174",
+      "title": "The Catcher in the Rye",
+      "author": "J.D. Salinger",
+      "coverUrl": "https://covers.openlibrary.org/b/isbn/9780316769174-L.jpg",
+      "status": "available",
+      "borrowedBy": null,
+      "borrowedAt": null,
+      "addedBy": "system",
+      "addedAt": "2026-06-09T20:00:00.000Z"
+    }
+  ],
+  "users": [
+    {
+      "id": "user-admin",
+      "username": "admin",
+      "passwordHash": "ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f",
+      "role": "admin"
+    }
+  ],
+  "comments": [
+    {
+      "id": "comment-1",
+      "userId": "user-admin",
+      "username": "admin",
+      "type": "comment",
+      "content": "Welcome to the Robinson ReposiStory Little Free Library! Feel free to browse, take, or leave books.",
+      "createdAt": "2026-06-09T21:00:00.000Z"
+    }
+  ]
+}
