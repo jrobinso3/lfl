@@ -5,7 +5,7 @@
 import { getFirebaseDb, getFirebaseInitError } from "./firebase";
 import {
   collection, doc, getDocs, setDoc, updateDoc,
-  addDoc, query, orderBy, where, deleteDoc, Timestamp, limit
+  addDoc, query, orderBy, where, deleteDoc, Timestamp, limit, onSnapshot
 } from "firebase/firestore";
 
 // Error tracking for live DB connection status
@@ -102,6 +102,7 @@ function readLocal(): DbSchema {
 function writeLocal(data: DbSchema) {
   if (typeof window === "undefined") return;
   localStorage.setItem("lfl-db", JSON.stringify(data));
+  window.dispatchEvent(new CustomEvent("lfl-local-write"));
 }
 
 // ─── Session helpers (localStorage) ──────────────────────────────────────────
@@ -359,4 +360,78 @@ export async function testFirebaseConnection(): Promise<FirebaseTestResult> {
   }
 
   return result;
+}
+
+// ─── Real-Time Subscriptions ──────────────────────────────────────────────────
+
+export function subscribeBooks(callback: (books: Book[]) => void): () => void {
+  const fbDb = getFirebaseDb();
+  if (fbDb) {
+    try {
+      const unsub = onSnapshot(collection(fbDb, "books"), (snap) => {
+        const books = snap.docs.map(d => ({ id: d.id, ...d.data() } as Book));
+        setLastDbError(null);
+        callback(books);
+      }, (err) => {
+        setLastDbError(err);
+        console.error("Firestore subscribeBooks error:", err);
+      });
+      return unsub;
+    } catch (err) {
+      setLastDbError(err);
+      console.error("Firestore subscribeBooks initial error:", err);
+    }
+  }
+
+  // Local fallback
+  const update = () => {
+    callback(readLocal().books);
+  };
+  update();
+
+  if (typeof window !== "undefined") {
+    window.addEventListener("lfl-local-write", update);
+    window.addEventListener("storage", update);
+    return () => {
+      window.removeEventListener("lfl-local-write", update);
+      window.removeEventListener("storage", update);
+    };
+  }
+  return () => {};
+}
+
+export function subscribeComments(callback: (comments: Comment[]) => void): () => void {
+  const fbDb = getFirebaseDb();
+  if (fbDb) {
+    try {
+      const unsub = onSnapshot(query(collection(fbDb, "comments"), orderBy("createdAt", "desc")), (snap) => {
+        const comments = snap.docs.map(d => ({ id: d.id, ...d.data() } as Comment));
+        setLastDbError(null);
+        callback(comments);
+      }, (err) => {
+        setLastDbError(err);
+        console.error("Firestore subscribeComments error:", err);
+      });
+      return unsub;
+    } catch (err) {
+      setLastDbError(err);
+      console.error("Firestore subscribeComments initial error:", err);
+    }
+  }
+
+  // Local fallback
+  const update = () => {
+    callback([...readLocal().comments]);
+  };
+  update();
+
+  if (typeof window !== "undefined") {
+    window.addEventListener("lfl-local-write", update);
+    window.addEventListener("storage", update);
+    return () => {
+      window.removeEventListener("lfl-local-write", update);
+      window.removeEventListener("storage", update);
+    };
+  }
+  return () => {};
 }

@@ -5,8 +5,8 @@ import TabBar from "@/components/TabBar";
 import DbStatus from "@/components/DbStatus";
 import { saveFirebaseConfig, clearFirebaseConfig } from "@/lib/firebase";
 import {
-  getBooks,
-  getComments,
+  subscribeBooks,
+  subscribeComments,
   updateBook,
   deleteBook,
   deleteComment,
@@ -52,17 +52,26 @@ export default function AdminPage() {
   }, []);
 
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  useEffect(() => {
     const user = getCurrentUser();
     setMe(user);
-    const [b, c] = await Promise.all([getBooks(), getComments()]);
-    setBooks(b);
-    setComments(c);
-    setLoading(false);
-  }, []);
+    setLoading(true);
 
-  useEffect(() => { load(); }, [load]);
+    const unsubBooks = subscribeBooks((latestBooks) => {
+      setBooks(latestBooks);
+      setLoading(false);
+    });
+
+    const unsubComments = subscribeComments((latestComments) => {
+      setComments(latestComments);
+      setLoading(false);
+    });
+
+    return () => {
+      unsubBooks();
+      unsubComments();
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -117,19 +126,16 @@ export default function AdminPage() {
 
   const returnBook = async (bookId: string) => {
     await updateBook(bookId, { status: "available", borrowedBy: null, borrowedAt: null });
-    load();
   };
 
   const removeBook = async (bookId: string) => {
     if (!confirm("Remove this book from the library?")) return;
     await deleteBook(bookId);
-    load();
   };
 
   const removeComment = async (commentId: string) => {
     if (!confirm("Delete this post?")) return;
     await deleteComment(commentId);
-    load();
   };
 
   if (me === undefined) return <div className="app-shell"><div className="spinner" /></div>;

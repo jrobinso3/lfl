@@ -3,31 +3,31 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import TabBar from "@/components/TabBar";
 import DbStatus from "@/components/DbStatus";
-import { getBooks, type Book } from "@/lib/db";
+import { subscribeBooks, type Book } from "@/lib/db";
 
 export default function HomePage() {
+  const [allBooks, setAllBooks] = useState<Book[]>([]);
   const [books, setBooks] = useState<Book[]>([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const fetchBooks = useCallback(async (q: string) => {
+  useEffect(() => {
     setLoading(true);
-    try {
-      const all = await getBooks();
-      const lower = q.toLowerCase();
-      setBooks(q ? all.filter(b =>
-        b.title.toLowerCase().includes(lower) ||
-        b.author.toLowerCase().includes(lower) ||
-        b.isbn.includes(lower)
-      ) : all);
-    } catch { setBooks([]); }
-    setLoading(false);
+    const unsub = subscribeBooks((latestBooks) => {
+      setAllBooks(latestBooks);
+      setLoading(false);
+    });
+    return unsub;
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => fetchBooks(query), 300);
-    return () => clearTimeout(t);
-  }, [query, fetchBooks]);
+    const lower = query.toLowerCase();
+    setBooks(query ? allBooks.filter(b =>
+      b.title.toLowerCase().includes(lower) ||
+      b.author.toLowerCase().includes(lower) ||
+      b.isbn.includes(lower)
+    ) : allBooks);
+  }, [query, allBooks]);
 
   return (
     <div className="app-shell">

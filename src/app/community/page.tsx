@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import TabBar from "@/components/TabBar";
 import DbStatus from "@/components/DbStatus";
-import { getComments, addComment, getCurrentUser, type Comment } from "@/lib/db";
+import { subscribeComments, addComment, getCurrentUser, type Comment } from "@/lib/db";
 
 export default function CommunityPage() {
   const [comments, setComments] = useState<Comment[]>([]);
@@ -14,16 +14,15 @@ export default function CommunityPage() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{kind:"success"|"error";msg:string}|null>(null);
 
-  const loadComments = useCallback(async () => {
-    setLoading(true);
-    setComments(await getComments());
-    setLoading(false);
-  }, []);
-
   useEffect(() => {
     setMe(getCurrentUser());
-    loadComments();
-  }, [loadComments]);
+    setLoading(true);
+    const unsub = subscribeComments((latestComments) => {
+      setComments(latestComments);
+      setLoading(false);
+    });
+    return unsub;
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,7 +31,6 @@ export default function CommunityPage() {
     try {
       await addComment({ userId: me.id, username: me.username, type, content: content.trim() });
       setContent(""); setResult({kind:"success", msg:"Posted!"});
-      loadComments();
     } catch { setResult({kind:"error", msg:"Failed to post."}); }
     setSubmitting(false);
   };
