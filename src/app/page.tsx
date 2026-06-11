@@ -4,6 +4,7 @@ import Link from "next/link";
 import TabBar from "@/components/TabBar";
 import DbStatus from "@/components/DbStatus";
 import { subscribeBooks, type Book } from "@/lib/db";
+import heroImg from "./img/IMG_0702.jpeg";
 
 export default function HomePage() {
   const [allBooks, setAllBooks] = useState<Book[]>([]);
@@ -43,7 +44,7 @@ export default function HomePage() {
         {/* Hero */}
         <div className="hero">
           <img
-            src="https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?w=600&q=80"
+            src={heroImg.src}
             alt="Little Free Library"
             className="hero-img"
           />
