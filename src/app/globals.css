@@ -288,7 +288,7 @@ textarea.form-input { resize: vertical; min-height: 100px; }
   background: var(--bg2);
   border: 2px dashed var(--border);
   border-radius: var(--radius);
-  min-height: 220px;
+  min-height: 240px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -299,9 +299,67 @@ textarea.form-input { resize: vertical; min-height: 100px; }
   position: relative;
   overflow: hidden;
 }
-.scanner-box.active { border-color: var(--accent); }
-#html5qr-code-full-region { width: 100% !important; border-radius: var(--radius); overflow: hidden; }
-#html5qr-code-full-region img { display: none; }
+.scanner-box.active { border-color: var(--accent); border-style: solid; }
+
+/* Viewfinder Overlay */
+.scanner-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+}
+.scanner-frame {
+  position: relative;
+  width: 280px;
+  height: 160px;
+  border: 1px dashed rgba(110, 231, 183, 0.25);
+  border-radius: 12px;
+  box-shadow: 0 0 0 9999px rgba(11, 15, 26, 0.6); /* Viewfinder cutout shading */
+}
+.scanner-laser {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  box-shadow: 0 0 8px var(--accent);
+  animation: scan-laser 2.2s ease-in-out infinite;
+}
+@keyframes scan-laser {
+  0% { top: 15%; opacity: 0.3; }
+  50% { top: 85%; opacity: 1; }
+  100% { top: 15%; opacity: 0.3; }
+}
+.scanner-frame .corner {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: 3px solid var(--accent);
+  filter: drop-shadow(0 0 2px var(--accent));
+}
+.scanner-frame .corner.top-left {
+  top: -2px; left: -2px;
+  border-right: none; border-bottom: none;
+  border-top-left-radius: 8px;
+}
+.scanner-frame .corner.top-right {
+  top: -2px; right: -2px;
+  border-left: none; border-bottom: none;
+  border-top-right-radius: 8px;
+}
+.scanner-frame .corner.bottom-left {
+  bottom: -2px; left: -2px;
+  border-right: none; border-top: none;
+  border-bottom-left-radius: 8px;
+}
+.scanner-frame .corner.bottom-right {
+  bottom: -2px; right: -2px;
+  border-left: none; border-top: none;
+  border-bottom-right-radius: 8px;
+}
 
 /* ── Alerts ── */
 .alert {

@@ -8,6 +8,8 @@ export default function LeavePage() {
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState<{ type: "success"|"error"|"info"; msg: string } | null>(null);
   const [foundBook, setFoundBook] = useState<Book | null>(null);
+  const [previewBook, setPreviewBook] = useState<{ title: string; author: string; coverUrl: string; isbn: string } | null>(null);
+  const [fetchingPreview, setFetchingPreview] = useState(false);
   const [loading, setLoading] = useState(false);
   const scannerRef = useRef<unknown>(null);
 
@@ -21,6 +23,61 @@ export default function LeavePage() {
       scannerRef.current = null;
     }
     setScanning(false);
+  };
+
+  // Trigger preview fetch when a valid ISBN length is reached
+  useEffect(() => {
+    const cleanIsbn = isbn.trim().replace(/[-\s]/g, "");
+    if (cleanIsbn.length === 10 || cleanIsbn.length === 13) {
+      loadOpenLibraryPreview(cleanIsbn);
+    } else {
+      setPreviewBook(null);
+    }
+  }, [isbn]);
+
+  const loadOpenLibraryPreview = async (isbnValue: string) => {
+    setFetchingPreview(true);
+    setResult(null);
+    setPreviewBook(null);
+    setFoundBook(null);
+    try {
+      // 1. Check if already exists in the database
+      const existing = await getBookByIsbn(isbnValue);
+      if (existing) {
+        setResult({ type: "error", msg: "This book is already in the library." });
+        setFetchingPreview(false);
+        return;
+      }
+
+      // 2. Fetch from Open Library API
+      const res = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${isbnValue}&format=json&jscmd=data`);
+      if (!res.ok) throw new Error("Network response was not ok");
+      
+      const data = await res.json();
+      const key = `ISBN:${isbnValue}`;
+      let title = "Unknown Title";
+      let author = "Unknown Author";
+      let coverUrl = `https://covers.openlibrary.org/b/isbn/${isbnValue}-L.jpg`;
+
+      if (data[key]) {
+        const d = data[key];
+        title = d.title ?? title;
+        author = d.authors?.[0]?.name ?? author;
+        coverUrl = d.cover?.large ?? d.cover?.medium ?? coverUrl;
+      }
+
+      setPreviewBook({ title, author, coverUrl, isbn: isbnValue });
+    } catch (err) {
+      console.error("Open Library lookup failed:", err);
+      // Still allow them to leave it as an Unknown Book
+      setPreviewBook({
+        title: "Unknown Book",
+        author: "Unknown Author",
+        coverUrl: `https://covers.openlibrary.org/b/isbn/${isbnValue}-L.jpg`,
+        isbn: isbnValue
+      });
+    }
+    setFetchingPreview(false);
   };
 
   useEffect(() => {
@@ -148,6 +205,14 @@ export default function LeavePage() {
           },
           (decoded: string) => {
             if (isMounted) {
+              // Satisfying double-pulse haptic feedback when scan is successful
+              if (typeof navigator !== "undefined" && navigator.vibrate) {
+                try {
+                  navigator.vibrate([100, 50, 100]);
+                } catch {
+                  // ignore
+                }
+              }
               setIsbn(decoded);
               stopScanner();
             }
@@ -198,40 +263,53 @@ export default function LeavePage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isbn.trim()) return;
+    const cleanIsbn = isbn.trim();
+    if (!cleanIsbn) return;
     setLoading(true);
     setResult(null);
     setFoundBook(null);
     try {
-      const existing = await getBookByIsbn(isbn.trim());
+      const existing = await getBookByIsbn(cleanIsbn);
       if (existing) {
         setResult({ type: "error", msg: "This book is already in the library." });
         setLoading(false);
         return;
       }
-      // Fetch book info from Open Library
-      let bookData = { title: "Unknown Title", author: "Unknown Author", coverUrl: "" };
-      try {
-        const res = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${isbn.trim()}&format=json&jscmd=data`);
-        const data = await res.json();
-        const key = `ISBN:${isbn.trim()}`;
-        if (data[key]) {
-          const d = data[key];
-          bookData.title = d.title ?? bookData.title;
-          bookData.author = d.authors?.[0]?.name ?? bookData.author;
-          bookData.coverUrl = d.cover?.large ?? d.cover?.medium ?? `https://covers.openlibrary.org/b/isbn/${isbn.trim()}-L.jpg`;
-        } else {
-          bookData.coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn.trim()}-L.jpg`;
+
+      let bookData = previewBook;
+      if (!bookData || bookData.isbn !== cleanIsbn) {
+        // Fallback fetch if user didn't trigger preview (e.g. bypassed preview)
+        let openLibraryData = { title: "Unknown Title", author: "Unknown Author", coverUrl: `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg` };
+        try {
+          const res = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`);
+          const data = await res.json();
+          const key = `ISBN:${cleanIsbn}`;
+          if (data[key]) {
+            const d = data[key];
+            openLibraryData.title = d.title ?? openLibraryData.title;
+            openLibraryData.author = d.authors?.[0]?.name ?? openLibraryData.author;
+            openLibraryData.coverUrl = d.cover?.large ?? d.cover?.medium ?? openLibraryData.coverUrl;
+          }
+        } catch {
+          // ignore
         }
-      } catch {
-        bookData.coverUrl = `https://covers.openlibrary.org/b/isbn/${isbn.trim()}-L.jpg`;
+        bookData = { ...openLibraryData, isbn: cleanIsbn };
       }
+
       const user = getCurrentUser();
       const book = await addBook({
-        isbn: isbn.trim(), ...bookData, status: "available",
-        borrowedBy: null, borrowedAt: null, addedBy: user?.username ?? "anonymous"
+        isbn: bookData.isbn,
+        title: bookData.title,
+        author: bookData.author,
+        coverUrl: bookData.coverUrl,
+        status: "available",
+        borrowedBy: null,
+        borrowedAt: null,
+        addedBy: user?.username ?? "anonymous"
       });
+
       setFoundBook(book);
+      setPreviewBook(null);
       setResult({ type: "success", msg: `"${book.title}" has been added to the library! 🎉` });
       setIsbn("");
     } catch (err) {
@@ -257,6 +335,16 @@ export default function LeavePage() {
           {scanning ? (
             <>
               <div id="leave-scanner" style={{width:"100%"}} />
+              {/* Premium overlay grid / viewfinder cutout */}
+              <div className="scanner-overlay">
+                <div className="scanner-frame">
+                  <div className="scanner-laser" />
+                  <div className="corner top-left" />
+                  <div className="corner top-right" />
+                  <div className="corner bottom-left" />
+                  <div className="corner bottom-right" />
+                </div>
+              </div>
               <button 
                 className="btn btn-danger btn-sm" 
                 style={{ 
@@ -297,7 +385,37 @@ export default function LeavePage() {
               inputMode="numeric"
             />
           </div>
+
+          {/* Loading Preview Spinner */}
+          {fetchingPreview && (
+            <div className="card" style={{ display: "flex", gap: "16px", alignItems: "center", justifyContent: "center", minHeight: "100px", marginBottom: 16 }}>
+              <div className="spinner" style={{ margin: 0, width: "24px", height: "24px", borderWidth: "2px" }} />
+              <span style={{ fontSize: "0.88rem", color: "var(--text-muted)" }}>Loading book details from OpenLibrary...</span>
+            </div>
+          )}
+
+          {/* Preview Card */}
+          {previewBook && !fetchingPreview && (
+            <div className="card" style={{ border: "1px solid var(--accent)", background: "rgba(110, 231, 183, 0.03)", marginBottom: 16 }}>
+              <p className="section-title" style={{ color: "var(--accent)", marginBottom: 10 }}>Book Found on OpenLibrary</p>
+              <div className="book-card" style={{ marginBottom: 0 }}>
+                <img 
+                  src={previewBook.coverUrl} 
+                  alt={previewBook.title} 
+                  className="book-cover"
+                  onError={(e) => { (e.target as HTMLImageElement).src = "https://placehold.co/60x88/1f2937/94a3b8?text=📖"; }}
+                />
+                <div className="book-info">
+                  <div className="book-title">{previewBook.title}</div>
+                  <div className="book-author">{previewBook.author}</div>
+                  <div className="book-isbn" style={{ marginTop: 4 }}>ISBN: {previewBook.isbn}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {result && <div className={`alert alert-${result.type}`}>{result.msg}</div>}
+          
           {foundBook && (
             <div className="card book-card" style={{marginBottom:16}}>
               <img src={foundBook.coverUrl} alt={foundBook.title} className="book-cover"
@@ -310,8 +428,9 @@ export default function LeavePage() {
               </div>
             </div>
           )}
-          <button className="btn btn-primary" type="submit" disabled={loading || !isbn.trim()}>
-            {loading ? "Looking up…" : "📥 Leave This Book"}
+
+          <button className="btn btn-primary" type="submit" disabled={loading || fetchingPreview || !isbn.trim()}>
+            {loading ? "Looking up…" : previewBook ? "📥 Confirm & Leave Book" : "📥 Leave This Book"}
           </button>
         </form>
       </main>

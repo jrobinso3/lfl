@@ -148,6 +148,13 @@ export default function TakePage() {
           },
           (decoded: string) => {
             if (isMounted) {
+              if (typeof navigator !== "undefined" && navigator.vibrate) {
+                try {
+                  navigator.vibrate([100, 50, 100]);
+                } catch {
+                  // ignore
+                }
+              }
               setIsbn(decoded);
               stopScanner();
             }
@@ -191,33 +198,51 @@ export default function TakePage() {
     };
   }, [scanning]);
 
-  const startScanner = () => {
-    setScanning(true);
-    setResult(null);
-  };
+  // Trigger automatic book lookup when a valid ISBN length is reached
+  useEffect(() => {
+    const cleanIsbn = isbn.trim().replace(/[-\s]/g, "");
+    if (cleanIsbn.length === 10 || cleanIsbn.length === 13) {
+      autoLookupBook(cleanIsbn);
+    } else {
+      setFoundBook(null);
+      setResult(null);
+    }
+  }, [isbn]);
 
-  const lookupBook = async () => {
-    if (!isbn.trim()) return;
+  const autoLookupBook = async (isbnValue: string) => {
     setLoading(true);
     setResult(null);
     setFoundBook(null);
     try {
       const books = await getBooks();
       const match = books.find(b =>
-        b.isbn === isbn.trim() || b.isbn.replace(/-/g,"") === isbn.trim().replace(/-/g,"")
+        b.isbn === isbnValue || b.isbn.replace(/[-\s]/g,"") === isbnValue
       );
       if (!match) {
-        setResult({ type: "error", msg: "This book is not in the library." });
+        setResult({ type: "error", msg: "This book is not registered in the library." });
       } else if (match.status === "borrowed") {
-        setResult({ type: "info", msg: "This book has already been taken." });
+        setResult({ type: "info", msg: `"${match.title}" is already checked out by ${match.borrowedBy}.` });
       } else {
         setFoundBook(match);
-        setResult({ type: "info", msg: "Found it! Confirm below to take this book." });
+        setResult({ type: "info", msg: "Book found! Confirm below to borrow it." });
       }
-    } catch {
-      setResult({ type: "error", msg: "Error looking up book." });
+    } catch (err) {
+      console.error("Auto lookup failed:", err);
+      setResult({ type: "error", msg: "Error searching library database." });
     }
     setLoading(false);
+  };
+
+  const startScanner = () => {
+    setScanning(true);
+    setResult(null);
+  };
+
+  const manualLookup = () => {
+    const cleanIsbn = isbn.trim().replace(/[-\s]/g, "");
+    if (cleanIsbn) {
+      autoLookupBook(cleanIsbn);
+    }
   };
 
   const confirmTake = async () => {
@@ -255,6 +280,16 @@ export default function TakePage() {
           {scanning ? (
             <>
               <div id="take-scanner" style={{width:"100%"}} />
+              {/* Premium overlay grid / viewfinder cutout */}
+              <div className="scanner-overlay">
+                <div className="scanner-frame">
+                  <div className="scanner-laser" />
+                  <div className="corner top-left" />
+                  <div className="corner top-right" />
+                  <div className="corner bottom-left" />
+                  <div className="corner bottom-right" />
+                </div>
+              </div>
               <button 
                 className="btn btn-danger btn-sm" 
                 style={{ 
@@ -294,9 +329,16 @@ export default function TakePage() {
             inputMode="numeric"
           />
         </div>
-        <button className="btn btn-accent2" style={{marginBottom:16}} onClick={lookupBook} disabled={loading || !isbn.trim()}>
+        <button className="btn btn-accent2" style={{marginBottom:16}} onClick={manualLookup} disabled={loading || !isbn.trim()}>
           {loading ? "Searching…" : "🔍 Look Up Book"}
         </button>
+
+        {loading && (
+          <div className="card" style={{ display: "flex", gap: "16px", alignItems: "center", justifyContent: "center", minHeight: "100px", marginBottom: 16 }}>
+            <div className="spinner" style={{ margin: 0, width: "24px", height: "24px", borderWidth: "2px" }} />
+            <span style={{ fontSize: "0.88rem", color: "var(--text-muted)" }}>Searching library database...</span>
+          </div>
+        )}
 
         {result && <div className={`alert alert-${result.type}`}>{result.msg}</div>}
 
