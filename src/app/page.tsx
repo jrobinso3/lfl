@@ -22,6 +22,7 @@ export default function HomePage() {
     pages?: number;
     googleBooksUrl?: string;
     openLibraryUrl?: string;
+    googleCoverUrl?: string;
     rating?: number;
     ratingsCount?: number;
   } | null>(null);
@@ -64,6 +65,7 @@ export default function HomePage() {
       let pages = 0;
       let googleBooksUrl = "";
       let openLibraryUrl = "";
+      let googleCoverUrl = "";
       let rating: number | undefined = undefined;
       let ratingsCount: number | undefined = undefined;
       
@@ -84,6 +86,11 @@ export default function HomePage() {
           googleBooksUrl = volumeInfo.infoLink ?? "";
           rating = volumeInfo.averageRating;
           ratingsCount = volumeInfo.ratingsCount;
+          
+          let rawCover = volumeInfo.imageLinks?.thumbnail ?? volumeInfo.imageLinks?.smallThumbnail;
+          if (rawCover) {
+            googleCoverUrl = rawCover.replace(/^http:\/\//i, "https://");
+          }
         }
       } catch (gErr) {
         console.warn("Google Books API failed, falling back to OpenLibrary:", gErr);
@@ -163,6 +170,7 @@ export default function HomePage() {
           pages,
           googleBooksUrl,
           openLibraryUrl,
+          googleCoverUrl,
           rating,
           ratingsCount
         });
@@ -333,7 +341,7 @@ export default function HomePage() {
             <button className="modal-close" onClick={() => setSelectedBook(null)}>✕</button>
             <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
               <img
-                src={selectedBook.coverUrl || `https://covers.openlibrary.org/b/isbn/${selectedBook.isbn}-L.jpg`}
+                src={extraDetails?.googleCoverUrl || selectedBook.coverUrl || `https://covers.openlibrary.org/b/isbn/${selectedBook.isbn}-L.jpg`}
                 alt={selectedBook.title}
                 style={{ width: "120px", height: "176px", borderRadius: "10px", objectFit: "cover", boxShadow: "0 10px 25px rgba(0,0,0,0.5)" }}
                 onError={(e) => { (e.target as HTMLImageElement).src = "https://placehold.co/120x176/1f2937/94a3b8?text=📖"; }}
