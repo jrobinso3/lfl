@@ -9,7 +9,7 @@ export default function LeavePage() {
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState<{ type: "success"|"error"|"info"; msg: string } | null>(null);
   const [foundBook, setFoundBook] = useState<Book | null>(null);
-  const [previewBook, setPreviewBook] = useState<{ title: string; author: string; coverUrl: string; isbn: string } | null>(null);
+  const [previewBook, setPreviewBook] = useState<{ title: string; author: string; coverUrl: string; isbn: string; rating?: number; ratingsCount?: number; } | null>(null);
   const [fetchingPreview, setFetchingPreview] = useState(false);
   const [loading, setLoading] = useState(false);
   const scannerRef = useRef<unknown>(null);
@@ -50,27 +50,34 @@ export default function LeavePage() {
         return;
       }
 
-      // 2. Fetch from Open Library API
-      const res = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${isbnValue}&format=json&jscmd=data`);
+      // 2. Fetch from Google Books API
+      const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbnValue}`);
       if (!res.ok) throw new Error("Network response was not ok");
       
       const data = await res.json();
-      const key = `ISBN:${isbnValue}`;
       let title = "Unknown Title";
       let author = "Unknown Author";
       let coverUrl = `https://covers.openlibrary.org/b/isbn/${isbnValue}-L.jpg`;
+      let rating: number | undefined = undefined;
+      let ratingsCount: number | undefined = undefined;
 
-      if (data[key]) {
-        const d = data[key];
-        title = d.title ?? title;
-        author = d.authors?.[0]?.name ?? author;
-        coverUrl = d.cover?.large ?? d.cover?.medium ?? coverUrl;
+      if (data.items && data.items.length > 0) {
+        const volumeInfo = data.items[0].volumeInfo;
+        title = volumeInfo.title ?? title;
+        author = volumeInfo.authors?.[0] ?? author;
+        let rawCoverUrl = volumeInfo.imageLinks?.thumbnail ?? volumeInfo.imageLinks?.smallThumbnail;
+        if (rawCoverUrl) {
+          coverUrl = rawCoverUrl.replace(/^http:\/\//i, "https://");
+        }
+        rating = volumeInfo.averageRating;
+        ratingsCount = volumeInfo.ratingsCount;
+      } else {
+        throw new Error("No book found in Google database");
       }
 
-      setPreviewBook({ title, author, coverUrl, isbn: isbnValue });
+      setPreviewBook({ title, author, coverUrl, isbn: isbnValue, rating, ratingsCount });
     } catch (err) {
-      console.error("Open Library lookup failed:", err);
-      // Still allow them to leave it as an Unknown Book
+      console.warn("Google Books lookup failed, using fallback:", err);
       setPreviewBook({
         title: "Unknown Book",
         author: "Unknown Author",
@@ -280,21 +287,31 @@ export default function LeavePage() {
       let bookData = previewBook;
       if (!bookData || bookData.isbn !== cleanIsbn) {
         // Fallback fetch if user didn't trigger preview (e.g. bypassed preview)
-        let openLibraryData = { title: "Unknown Title", author: "Unknown Author", coverUrl: `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg` };
+        let googleData = { 
+          title: "Unknown Title", 
+          author: "Unknown Author", 
+          coverUrl: `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg`,
+          rating: undefined as number | undefined,
+          ratingsCount: undefined as number | undefined
+        };
         try {
-          const res = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`);
+          const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
           const data = await res.json();
-          const key = `ISBN:${cleanIsbn}`;
-          if (data[key]) {
-            const d = data[key];
-            openLibraryData.title = d.title ?? openLibraryData.title;
-            openLibraryData.author = d.authors?.[0]?.name ?? openLibraryData.author;
-            openLibraryData.coverUrl = d.cover?.large ?? d.cover?.medium ?? openLibraryData.coverUrl;
+          if (data.items && data.items.length > 0) {
+            const volumeInfo = data.items[0].volumeInfo;
+            googleData.title = volumeInfo.title ?? googleData.title;
+            googleData.author = volumeInfo.authors?.[0] ?? googleData.author;
+            let rawCoverUrl = volumeInfo.imageLinks?.thumbnail ?? volumeInfo.imageLinks?.smallThumbnail;
+            if (rawCoverUrl) {
+              googleData.coverUrl = rawCoverUrl.replace(/^http:\/\//i, "https://");
+            }
+            googleData.rating = volumeInfo.averageRating;
+            googleData.ratingsCount = volumeInfo.ratingsCount;
           }
         } catch {
           // ignore
         }
-        bookData = { ...openLibraryData, isbn: cleanIsbn };
+        bookData = { ...googleData, isbn: cleanIsbn };
       }
 
       const user = getCurrentUser();
@@ -306,7 +323,9 @@ export default function LeavePage() {
         status: "available",
         borrowedBy: null,
         borrowedAt: null,
-        addedBy: user?.displayName ?? user?.username ?? "anonymous"
+        addedBy: user?.displayName ?? user?.username ?? "anonymous",
+        rating: bookData.rating,
+        ratingsCount: bookData.ratingsCount
       });
 
       setFoundBook(book);
@@ -394,14 +413,14 @@ export default function LeavePage() {
           {fetchingPreview && (
             <div className="card" style={{ display: "flex", gap: "16px", alignItems: "center", justifyContent: "center", minHeight: "100px", marginBottom: 16 }}>
               <div className="spinner" style={{ margin: 0, width: "24px", height: "24px", borderWidth: "2px" }} />
-              <span style={{ fontSize: "0.88rem", color: "var(--text-muted)" }}>Loading book details from OpenLibrary...</span>
+              <span style={{ fontSize: "0.88rem", color: "var(--text-muted)" }}>Loading book details from Google Books...</span>
             </div>
           )}
 
           {/* Preview Card */}
           {previewBook && !fetchingPreview && (
             <div className="card" style={{ border: "1px solid var(--accent)", background: "rgba(110, 231, 183, 0.03)", marginBottom: 16 }}>
-              <p className="section-title" style={{ color: "var(--accent)", marginBottom: 10 }}>Book Found on OpenLibrary</p>
+              <p className="section-title" style={{ color: "var(--accent)", marginBottom: 10 }}>Book Found on Google Books</p>
               <div className="book-card" style={{ marginBottom: 0 }}>
                 <img 
                   src={previewBook.coverUrl} 
@@ -413,6 +432,15 @@ export default function LeavePage() {
                   <div className="book-title">{previewBook.title}</div>
                   <div className="book-author">{previewBook.author}</div>
                   <div className="book-isbn" style={{ marginTop: 4 }}>ISBN: {previewBook.isbn}</div>
+                  {previewBook.rating && (
+                    <div style={{ fontSize: "0.8rem", color: "#fbbf24", display: "flex", alignItems: "center", gap: "4px", marginTop: "6px" }}>
+                      {'★'.repeat(Math.round(previewBook.rating)) + '☆'.repeat(5 - Math.round(previewBook.rating))}
+                      <span style={{ color: "var(--text)", fontWeight: 600 }}>{previewBook.rating.toFixed(1)}</span>
+                      {previewBook.ratingsCount && (
+                        <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>({previewBook.ratingsCount} ratings)</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -428,6 +456,12 @@ export default function LeavePage() {
               <div className="book-info">
                 <div className="book-title">{foundBook.title}</div>
                 <div className="book-author">{foundBook.author}</div>
+                {foundBook.rating && (
+                  <div style={{ fontSize: "0.8rem", color: "#fbbf24", display: "flex", alignItems: "center", gap: "4px", marginTop: "2px", marginBottom: "4px" }}>
+                    {'★'.repeat(Math.round(foundBook.rating)) + '☆'.repeat(5 - Math.round(foundBook.rating))}
+                    <span style={{ color: "var(--text-muted)" }}>({foundBook.rating.toFixed(1)})</span>
+                  </div>
+                )}
                 <span className="book-status available">✓ Added</span>
               </div>
             </div>

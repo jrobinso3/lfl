@@ -20,9 +20,9 @@ export default function HomePage() {
     publishDate?: string;
     publisher?: string;
     pages?: number;
-    publishPlaces?: string;
-    goodreadsId?: string;
-    openLibraryUrl?: string;
+    googleBooksUrl?: string;
+    rating?: number;
+    ratingsCount?: number;
   } | null>(null);
 
   useEffect(() => {
@@ -58,54 +58,42 @@ export default function HomePage() {
     
     const fetchSummary = async () => {
       try {
-        const res = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${selectedBook.isbn}&format=json&jscmd=details`);
+        const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${selectedBook.isbn}`);
         if (!res.ok) throw new Error();
         const data = await res.json();
-        const key = `ISBN:${selectedBook.isbn}`;
-        const bookData = data[key];
         
         let desc = "";
         let publishDate = "";
         let publisher = "";
         let pages = 0;
-        let publishPlaces = "";
-        let goodreadsId = "";
-        let openLibraryUrl = bookData?.info_url ?? "";
+        let googleBooksUrl = "";
+        let rating: number | undefined = undefined;
+        let ratingsCount: number | undefined = undefined;
         
-        if (bookData?.details) {
-          const details = bookData.details;
-          
-          if (details.description) {
-            const d = details.description;
-            desc = typeof d === "string" ? d : d.value ?? "";
-          }
-          
-          publishDate = details.publish_date ?? "";
-          if (details.publishers && details.publishers.length > 0) {
-            publisher = details.publishers.join(", ");
-          }
-          pages = details.number_of_pages ?? 0;
-          if (details.publish_places && details.publish_places.length > 0) {
-            publishPlaces = details.publish_places.join(", ");
-          }
-          if (details.identifiers?.goodreads && details.identifiers.goodreads.length > 0) {
-            goodreadsId = details.identifiers.goodreads[0];
-          }
+        if (data.items && data.items.length > 0) {
+          const volumeInfo = data.items[0].volumeInfo;
+          desc = volumeInfo.description ?? "";
+          publishDate = volumeInfo.publishedDate ?? "";
+          publisher = volumeInfo.publisher ?? "";
+          pages = volumeInfo.pageCount ?? 0;
+          googleBooksUrl = volumeInfo.infoLink ?? "";
+          rating = volumeInfo.averageRating;
+          ratingsCount = volumeInfo.ratingsCount;
         }
         
         if (isMounted) {
           if (desc) {
             setSummary(desc);
           } else {
-            setSummary("No summary available for this edition in the OpenLibrary archives.");
+            setSummary("No summary available for this edition in the Google Books archives.");
           }
           setExtraDetails({
             publishDate,
             publisher,
             pages,
-            publishPlaces,
-            goodreadsId,
-            openLibraryUrl
+            googleBooksUrl,
+            rating,
+            ratingsCount
           });
         }
       } catch (err) {
@@ -240,6 +228,15 @@ export default function HomePage() {
                   <div className="book-title">{book.title}</div>
                   <div className="book-author">{book.author}</div>
                   <div className="book-isbn">ISBN: {book.isbn}</div>
+                  {book.rating && (
+                    <div className="book-rating" style={{ fontSize: "0.8rem", color: "#fbbf24", display: "flex", alignItems: "center", gap: "4px", marginTop: "4px" }}>
+                      {'★'.repeat(Math.round(book.rating)) + '☆'.repeat(5 - Math.round(book.rating))}
+                      <span style={{ color: "var(--text)", fontWeight: 600 }}>{book.rating.toFixed(1)}</span>
+                      {book.ratingsCount && (
+                        <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>({book.ratingsCount.toLocaleString()})</span>
+                      )}
+                    </div>
+                  )}
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
                     <span className={`book-status ${book.status}`}>
                       {book.status === "available" ? "✓ Available" : "✗ Borrowed"}
@@ -279,7 +276,21 @@ export default function HomePage() {
               />
             </div>
             <h2 className="modal-title" style={{ textAlign: "center" }}>{selectedBook.title}</h2>
-            <p className="modal-author" style={{ textAlign: "center" }}>by {selectedBook.author}</p>
+            <p className="modal-author" style={{ textAlign: "center", marginBottom: 8 }}>by {selectedBook.author}</p>
+            
+            {(selectedBook.rating || extraDetails?.rating) && (
+              <div className="modal-rating" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6, marginBottom: 16, color: "#fbbf24", fontSize: "1.1rem" }}>
+                <div>
+                  {'★'.repeat(Math.round(selectedBook.rating ?? extraDetails?.rating ?? 0)) + '☆'.repeat(5 - Math.round(selectedBook.rating ?? extraDetails?.rating ?? 0))}
+                </div>
+                <span style={{ fontWeight: 600, color: "var(--text)" }}>{(selectedBook.rating ?? extraDetails?.rating ?? 0).toFixed(1)}</span>
+                {(selectedBook.ratingsCount || extraDetails?.ratingsCount) && (
+                  <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                    ({(selectedBook.ratingsCount ?? extraDetails?.ratingsCount ?? 0).toLocaleString()} ratings)
+                  </span>
+                )}
+              </div>
+            )}
             
             <div className="modal-meta-list">
               <div className="modal-meta-item">
@@ -316,6 +327,19 @@ export default function HomePage() {
                   </div>
                 </>
               )}
+              <div className="modal-meta-item">
+                <span className="modal-meta-label">Links</span>
+                <div style={{ display: "flex", gap: 12 }}>
+                  <a href={`https://www.goodreads.com/search?q=${selectedBook.isbn}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: "0.8rem", color: "var(--accent2)", textDecoration: "none", display: "flex", alignItems: "center", gap: 2 }}>
+                    📚 Goodreads
+                  </a>
+                  {extraDetails?.googleBooksUrl && (
+                    <a href={extraDetails.googleBooksUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: "0.8rem", color: "var(--accent)", textDecoration: "none", display: "flex", alignItems: "center", gap: 2 }}>
+                      📖 Google Books
+                    </a>
+                  )}
+                </div>
+              </div>
               {extraDetails && (
                 <>
                   {extraDetails.publisher && (
@@ -336,29 +360,6 @@ export default function HomePage() {
                       <span className="modal-meta-value">{extraDetails.pages} pages</span>
                     </div>
                   ) : null}
-                  {extraDetails.publishPlaces && (
-                    <div className="modal-meta-item">
-                      <span className="modal-meta-label">Publish Place</span>
-                      <span className="modal-meta-value" style={{ textAlign: "right", maxWidth: "180px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={extraDetails.publishPlaces}>{extraDetails.publishPlaces}</span>
-                    </div>
-                  )}
-                  {(extraDetails.goodreadsId || extraDetails.openLibraryUrl) && (
-                    <div className="modal-meta-item" style={{ borderBottom: "none", paddingBottom: 0 }}>
-                      <span className="modal-meta-label">Links</span>
-                      <div style={{ display: "flex", gap: 12 }}>
-                        {extraDetails.openLibraryUrl && (
-                          <a href={extraDetails.openLibraryUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: "0.8rem", color: "var(--accent)", textDecoration: "none", display: "flex", alignItems: "center", gap: 2 }}>
-                            📖 OpenLibrary
-                          </a>
-                        )}
-                        {extraDetails.goodreadsId && (
-                          <a href={`https://www.goodreads.com/book/show/${extraDetails.goodreadsId}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: "0.8rem", color: "var(--accent2)", textDecoration: "none", display: "flex", alignItems: "center", gap: 2 }}>
-                            📚 Goodreads
-                          </a>
-                        )}
-                      </div>
-                    </div>
-                  )}
                 </>
               )}
             </div>

@@ -39,6 +39,8 @@ export interface Book {
   coverUrl: string; status: "available" | "borrowed";
   borrowedBy: string | null; borrowedAt: string | null;
   addedBy: string; addedAt: string;
+  rating?: number;
+  ratingsCount?: number;
 }
 
 export interface User {
@@ -63,15 +65,18 @@ const SEED: DbSchema = {
     { id: "book-1", isbn: "9780140449136", title: "Crime and Punishment", author: "Fyodor Dostoevsky",
       coverUrl: "https://covers.openlibrary.org/b/isbn/9780140449136-L.jpg",
       status: "available", borrowedBy: null, borrowedAt: null,
-      addedBy: "system", addedAt: "2026-06-09T20:00:00.000Z" },
+      addedBy: "system", addedAt: "2026-06-09T20:00:00.000Z",
+      rating: 4.2, ratingsCount: 310500 },
     { id: "book-2", isbn: "9780451524935", title: "1984", author: "George Orwell",
       coverUrl: "https://covers.openlibrary.org/b/isbn/9780451524935-L.jpg",
       status: "available", borrowedBy: null, borrowedAt: null,
-      addedBy: "system", addedAt: "2026-06-09T20:00:00.000Z" },
+      addedBy: "system", addedAt: "2026-06-09T20:00:00.000Z",
+      rating: 4.2, ratingsCount: 4100000 },
     { id: "book-3", isbn: "9780316769174", title: "The Catcher in the Rye", author: "J.D. Salinger",
       coverUrl: "https://covers.openlibrary.org/b/isbn/9780316769174-L.jpg",
       status: "available", borrowedBy: null, borrowedAt: null,
-      addedBy: "system", addedAt: "2026-06-09T20:00:00.000Z" },
+      addedBy: "system", addedAt: "2026-06-09T20:00:00.000Z",
+      rating: 3.8, ratingsCount: 3200000 },
   ],
   users: [
     { id: "user-admin", username: "admin", displayName: "Admin",
