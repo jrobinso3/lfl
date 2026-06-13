@@ -61,23 +61,25 @@ export interface DbSchema {
 
 // ─── Seed Data ───────────────────────────────────────────────────────────────
 
+// Cover URLs use OpenLibrary cover-ID format (verified full-color JPEGs).
+// Google Books thumbnail URLs at zoom=1 returned tiny 1KB grayscale stubs for most editions.
 const SEED: DbSchema = {
   books: [
     { id: "book-1", isbn: "9780140449136", title: "Crime and Punishment", author: "Fyodor Dostoevsky",
-      coverUrl: "https://books.google.com/books/content?id=uT1HDAAAQBAJ&printsec=frontcover&img=1&zoom=1&source=gbs_api",
+      coverUrl: "https://covers.openlibrary.org/b/id/14935910-L.jpg",
       status: "available", borrowedBy: null, borrowedAt: null,
       addedBy: "system", addedAt: "2026-06-09T20:00:00.000Z",
-      rating: 4.2, ratingsCount: 310500, pages: 545 },
+      rating: 4.29, ratingsCount: 154, pages: 545 },
     { id: "book-2", isbn: "9780451524935", title: "1984", author: "George Orwell",
-      coverUrl: "https://books.google.com/books/content?id=yxv1LK5gyV4C&printsec=frontcover&img=1&zoom=1&source=gbs_api",
+      coverUrl: "https://covers.openlibrary.org/b/id/12054527-L.jpg",
       status: "available", borrowedBy: null, borrowedAt: null,
       addedBy: "system", addedAt: "2026-06-09T20:00:00.000Z",
-      rating: 4.2, ratingsCount: 4100000, pages: 328 },
+      rating: 4.29, ratingsCount: 405, pages: 328 },
     { id: "book-3", isbn: "9780316769174", title: "The Catcher in the Rye", author: "J.D. Salinger",
-      coverUrl: "https://books.google.com/books/content?id=DK7zMQAACAAJ&printsec=frontcover&img=1&zoom=1&source=gbs_api",
+      coverUrl: "https://covers.openlibrary.org/b/id/15171908-L.jpg",
       status: "available", borrowedBy: null, borrowedAt: null,
       addedBy: "system", addedAt: "2026-06-09T20:00:00.000Z",
-      rating: 3.8, ratingsCount: 3200000, pages: 277 },
+      rating: 3.59, ratingsCount: 392, pages: 277 },
   ],
   users: [
     { id: "user-admin", username: "admin", displayName: "Admin",
@@ -108,22 +110,37 @@ function readLocal(): DbSchema {
         writeLocal(parsed);
       }
       
-      // Auto-migrate seed book cover URLs to Google Books cover URLs
+      // Auto-migrate seed book cover URLs to verified OpenLibrary cover-ID URLs.
+      // The previous Google Books zoom=1 URLs returned tiny 1KB grayscale placeholder images.
       let updated = false;
-      const b1 = parsed.books?.find(b => b.id === "book-1");
-      if (b1 && b1.coverUrl.includes("openlibrary.org")) {
-        b1.coverUrl = "https://books.google.com/books/content?id=uT1HDAAAQBAJ&printsec=frontcover&img=1&zoom=1&source=gbs_api";
-        updated = true;
-      }
-      const b2 = parsed.books?.find(b => b.id === "book-2");
-      if (b2 && b2.coverUrl.includes("openlibrary.org")) {
-        b2.coverUrl = "https://books.google.com/books/content?id=yxv1LK5gyV4C&printsec=frontcover&img=1&zoom=1&source=gbs_api";
-        updated = true;
-      }
-      const b3 = parsed.books?.find(b => b.id === "book-3");
-      if (b3 && b3.coverUrl.includes("openlibrary.org")) {
-        b3.coverUrl = "https://books.google.com/books/content?id=DK7zMQAACAAJ&printsec=frontcover&img=1&zoom=1&source=gbs_api";
-        updated = true;
+      const BAD_COVERS: Record<string, string> = {
+        "book-1": "https://covers.openlibrary.org/b/id/14935910-L.jpg",
+        "book-2": "https://covers.openlibrary.org/b/id/12054527-L.jpg",
+        "book-3": "https://covers.openlibrary.org/b/id/15171908-L.jpg",
+      };
+      const BAD_RATINGS: Record<string, { rating: number; ratingsCount: number }> = {
+        "book-1": { rating: 4.29, ratingsCount: 154 },
+        "book-2": { rating: 4.29, ratingsCount: 405 },
+        "book-3": { rating: 3.59, ratingsCount: 392 },
+      };
+      for (const [id, goodUrl] of Object.entries(BAD_COVERS)) {
+        const b = parsed.books?.find(b => b.id === id);
+        if (b) {
+          // Fix any old Google Books zoom=1 stub URL or any other bad cover
+          const isBadGoogleUrl = b.coverUrl.includes("books.google.com") && b.coverUrl.includes("zoom=1");
+          const isMissing = !b.coverUrl;
+          if (isBadGoogleUrl || isMissing) {
+            b.coverUrl = goodUrl;
+            updated = true;
+          }
+          // Fix inflated/fictional ratingsCount values (seed data had millions)
+          const correctRatings = BAD_RATINGS[id];
+          if (correctRatings && (b.ratingsCount === undefined || b.ratingsCount > 10000)) {
+            b.rating = correctRatings.rating;
+            b.ratingsCount = correctRatings.ratingsCount;
+            updated = true;
+          }
+        }
       }
       if (updated) {
         writeLocal(parsed);

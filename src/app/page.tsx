@@ -37,6 +37,83 @@ export default function HomePage() {
     return unsub;
   }, []);
 
+  // Background enrichment: for any book missing rating/pages/cover, fetch from OpenLibrary
+  // and persist so catalog cards show populated data without requiring a modal open.
+  useEffect(() => {
+    if (allBooks.length === 0) return;
+    let cancelled = false;
+
+    const needsEnrichment = allBooks.filter(b =>
+      b.rating === undefined || !b.pages || b.pages === 0 || !b.coverUrl
+    );
+    if (needsEnrichment.length === 0) return;
+
+    const enrich = async () => {
+      for (const book of needsEnrichment) {
+        if (cancelled) break;
+        try {
+          // 1. Fetch edition details (cover, pages)
+          const detailsRes = await fetch(
+            `https://openlibrary.org/api/books?bibkeys=ISBN:${book.isbn}&format=json&jscmd=details`
+          );
+          if (!detailsRes.ok || cancelled) continue;
+          const detailsData = await detailsRes.json();
+          const bk = detailsData[`ISBN:${book.isbn}`];
+          if (!bk) continue;
+
+          const updates: Partial<Book> = {};
+
+          // Cover: use the cover ID from details to build a proper large URL
+          if (!book.coverUrl) {
+            const coverIds: number[] = bk.details?.covers ?? [];
+            const validId = coverIds.find((id: number) => id > 0);
+            if (validId) {
+              updates.coverUrl = `https://covers.openlibrary.org/b/id/${validId}-L.jpg`;
+            } else if (bk.thumbnail_url) {
+              // thumbnail_url is -S size; upgrade to -L
+              updates.coverUrl = bk.thumbnail_url.replace(/-S\.jpg$/, "-L.jpg");
+            }
+          }
+
+          // Pages
+          if ((!book.pages || book.pages === 0) && bk.details?.number_of_pages) {
+            updates.pages = bk.details.number_of_pages;
+          }
+
+          // 2. Fetch ratings from Work endpoint
+          if (book.rating === undefined) {
+            const works: { key: string }[] = bk.details?.works ?? [];
+            if (works.length > 0) {
+              await new Promise(r => setTimeout(r, 300));
+              if (cancelled) break;
+              const ratingsRes = await fetch(
+                `https://openlibrary.org${works[0].key}/ratings.json`
+              );
+              if (ratingsRes.ok && !cancelled) {
+                const rd = await ratingsRes.json();
+                if (rd.summary?.average) {
+                  updates.rating = rd.summary.average;
+                  updates.ratingsCount = rd.summary.count;
+                }
+              }
+            }
+          }
+
+          if (Object.keys(updates).length > 0 && !cancelled) {
+            updateBook(book.id, updates).catch(() => {});
+          }
+        } catch {
+          // Non-fatal — skip this book
+        }
+        // Throttle between books to be polite to the API
+        await new Promise(r => setTimeout(r, 300));
+      }
+    };
+
+    enrich();
+    return () => { cancelled = true; };
+  }, [allBooks]);
+
   const handleDeleteBook = async (bookId: string) => {
     if (!confirm("Are you sure you want to remove this book from the library?")) return;
     try {
