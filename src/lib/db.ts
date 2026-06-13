@@ -228,31 +228,60 @@ export async function getUserByUsername(username: string): Promise<User | undefi
     try {
       const snap = await getDocs(query(collection(fbDb, "users"), where("username", "==", username.toLowerCase())));
       setLastDbError(null);
-      if (snap.empty) return undefined;
-      const d = snap.docs[0];
-      return { id: d.id, ...d.data() } as User;
+      if (!snap.empty) {
+        const d = snap.docs[0];
+        const user = { id: d.id, ...d.data() } as User;
+        
+        // Promote this user to admin if there are currently no admins in Firestore
+        const allUsers = await getUsers();
+        const adminCount = allUsers.filter(u => u.role === "admin").length;
+        if (adminCount === 0 && user.role !== "admin") {
+          user.role = "admin";
+          await updateDoc(doc(fbDb, "users", user.id), { role: "admin" });
+        }
+        return user;
+      }
+      return undefined;
     } catch (err) {
       setLastDbError(err);
       console.error("Firestore getUserByUsername error, falling back to local:", err);
     }
   }
-  return readLocal().users.find(u => u.username.toLowerCase() === username.toLowerCase());
+  
+  // Local fallback
+  const db = readLocal();
+  const localUser = db.users.find(u => u.username.toLowerCase() === username.toLowerCase());
+  if (localUser) {
+    const adminCount = db.users.filter(u => u.role === "admin").length;
+    if (adminCount === 0 && localUser.role !== "admin") {
+      localUser.role = "admin";
+      const idx = db.users.findIndex(u => u.id === localUser.id);
+      db.users[idx].role = "admin";
+      writeLocal(db);
+    }
+  }
+  return localUser;
 }
 
 export async function addUser(user: Omit<User, "id">): Promise<User> {
   const fbDb = getFirebaseDb();
+  const allUsers = await getUsers();
+  const adminCount = allUsers.filter(u => u.role === "admin").length;
+  const roleToUse = adminCount === 0 ? "admin" : user.role;
+  const userToCreate = { ...user, role: roleToUse };
+
   if (fbDb) {
     try {
-      const ref = await addDoc(collection(fbDb, "users"), user);
+      const ref = await addDoc(collection(fbDb, "users"), userToCreate);
       setLastDbError(null);
-      return { id: ref.id, ...user };
+      return { id: ref.id, ...userToCreate };
     } catch (err) {
       setLastDbError(err);
       console.error("Firestore addUser error, falling back to local:", err);
     }
   }
   const db = readLocal();
-  const nu: User = { ...user, id: `user-${Date.now()}` };
+  const nu: User = { ...userToCreate, id: `user-${Date.now()}` };
   db.users.push(nu);
   writeLocal(db);
   return nu;
