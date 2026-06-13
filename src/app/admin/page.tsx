@@ -24,6 +24,8 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [testResult, setTestResult] = useState<FirebaseTestResult | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
+  const [repairing, setRepairing] = useState(false);
+  const [repairStatus, setRepairStatus] = useState<string | null>(null);
 
   const runDiagnostics = useCallback(async () => {
     setTestingConnection(true);
@@ -41,6 +43,63 @@ export default function AdminPage() {
     }
     setTestingConnection(false);
   }, []);
+
+  const repairMetadata = async () => {
+    setRepairing(true);
+    setRepairStatus("Starting metadata repair...");
+    let updatedCount = 0;
+    let checkedCount = 0;
+
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_BOOKS_API_KEY;
+
+    for (const book of books) {
+      checkedCount++;
+      setRepairStatus(`Checking book ${checkedCount}/${books.length}: "${book.title}"...`);
+      
+      const needsCover = !book.coverUrl || book.coverUrl.includes("openlibrary.org");
+      const needsRating = book.rating === undefined;
+      const needsPages = !book.pages || book.pages === 0;
+
+      if (needsCover || needsRating || needsPages) {
+        try {
+          const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${book.isbn}${apiKey ? `&key=${apiKey}` : ""}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.items && data.items.length > 0) {
+              const volumeInfo = data.items[0].volumeInfo;
+              const updates: Partial<Book> = {};
+              
+              if (needsCover) {
+                let rawCover = volumeInfo.imageLinks?.thumbnail ?? volumeInfo.imageLinks?.smallThumbnail;
+                if (rawCover) {
+                  updates.coverUrl = rawCover.replace(/^http:\/\//i, "https://");
+                }
+              }
+              if (needsRating && volumeInfo.averageRating !== undefined) {
+                updates.rating = volumeInfo.averageRating;
+                updates.ratingsCount = volumeInfo.ratingsCount;
+              }
+              if (needsPages && volumeInfo.pageCount) {
+                updates.pages = volumeInfo.pageCount;
+              }
+
+              if (Object.keys(updates).length > 0) {
+                await updateBook(book.id, updates);
+                updatedCount++;
+              }
+            }
+          }
+          // Sleep for 200ms between calls to prevent immediate rate limit hitting
+          await new Promise(r => setTimeout(r, 200));
+        } catch (err) {
+          console.error(`Failed to repair metadata for ${book.title}:`, err);
+        }
+      }
+    }
+
+    setRepairStatus(`Repair completed! Checked ${checkedCount} books. Successfully updated ${updatedCount} books with Google Books metadata.`);
+    setRepairing(false);
+  };
 
 
   useEffect(() => {
@@ -175,70 +234,89 @@ export default function AdminPage() {
               Firestore real-time synchronization diagnostics. Database settings are configured via project environment variables.
             </p>
             {activeTab === "settings" && (
-              <div className="diagnostics-card" style={{ padding: "16px", borderRadius: "10px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)", boxShadow: "inset 0 1px 1px rgba(255,255,255,0.05)" }}>
-                <h4 style={{ marginBottom: 16, fontWeight: 600, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.95rem" }}>
-                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>🔍 Connection Diagnostics</span>
-                  <button type="button" onClick={runDiagnostics} className="btn btn-sm" disabled={testingConnection} style={{ padding: "6px 12px", fontSize: "0.75rem", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "4px", cursor: "pointer", color: "var(--text)" }}>
-                    {testingConnection ? "Testing..." : "Test Connection"}
-                  </button>
-                </h4>
-                {testingConnection ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: "0.85rem", color: "var(--text-muted)", padding: "10px 0" }}>
-                    <div className="spinner" style={{ width: 16, height: 16, borderWidth: 2, margin: 0 }} /> Testing Firestore operations...
-                  </div>
-                ) : testResult ? (
-                  <div style={{ fontSize: "0.85rem", display: "flex", flexDirection: "column", gap: 10 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                      <span style={{ color: "var(--text-muted)" }}>Firebase Credentials:</span>
-                      <span style={{ fontWeight: 600, color: testResult.configPresent ? "var(--accent)" : "var(--accent3)" }}>
-                        {testResult.configPresent ? "📋 Configured" : "🔌 Missing (Local Mode)"}
-                      </span>
+              <>
+                <div className="diagnostics-card" style={{ padding: "16px", borderRadius: "10px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)", boxShadow: "inset 0 1px 1px rgba(255,255,255,0.05)" }}>
+                  <h4 style={{ marginBottom: 16, fontWeight: 600, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.95rem" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>🔍 Connection Diagnostics</span>
+                    <button type="button" onClick={runDiagnostics} className="btn btn-sm" disabled={testingConnection} style={{ padding: "6px 12px", fontSize: "0.75rem", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "4px", cursor: "pointer", color: "var(--text)" }}>
+                      {testingConnection ? "Testing..." : "Test Connection"}
+                    </button>
+                  </h4>
+                  {testingConnection ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: "0.85rem", color: "var(--text-muted)", padding: "10px 0" }}>
+                      <div className="spinner" style={{ width: 16, height: 16, borderWidth: 2, margin: 0 }} /> Testing Firestore operations...
                     </div>
-                    {testResult.configPresent && (
-                      <>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                          <span style={{ color: "var(--text-muted)" }}>SDK Initialization:</span>
-                          <span style={{ fontWeight: 600, color: testResult.initialized ? "var(--accent)" : "#f87171" }}>
-                            {testResult.initialized ? "⚙️ Ready" : "✗ Failed"}
-                          </span>
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                          <span style={{ color: "var(--text-muted)" }}>Database Read:</span>
-                          <span style={{ fontWeight: 600, color: testResult.readSuccess ? "var(--accent)" : "#f87171" }}>
-                            {testResult.readSuccess ? "📖 Authorized & Working" : "✗ Access Denied / Failed"}
-                          </span>
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span style={{ color: "var(--text-muted)" }}>Database Write:</span>
-                          <span style={{ fontWeight: 600, color: testResult.writeSuccess ? "var(--accent)" : "#f87171" }}>
-                            {testResult.writeSuccess ? "✍️ Authorized & Working" : "✗ Access Denied / Failed"}
-                          </span>
-                        </div>
-                      </>
-                    )}
-                    {testResult.projectId && (
-                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", background: "rgba(0,0,0,0.15)", padding: "8px 12px", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.03)", marginTop: 6 }}>
-                        Project ID: <code style={{ color: "var(--accent2)" }}>{testResult.projectId}</code>
+                  ) : testResult ? (
+                    <div style={{ fontSize: "0.85rem", display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                        <span style={{ color: "var(--text-muted)" }}>Firebase Credentials:</span>
+                        <span style={{ fontWeight: 600, color: testResult.configPresent ? "var(--accent)" : "var(--accent3)" }}>
+                          {testResult.configPresent ? "📋 Configured" : "🔌 Missing (Local Mode)"}
+                        </span>
                       </div>
-                    )}
-                    {testResult.error && (
-                      <div className="alert alert-error" style={{ fontSize: "0.8rem", padding: "12px", marginTop: 8, wordBreak: "break-word", background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.15)", color: "#fca5a5" }}>
-                        <div style={{ fontWeight: 600, marginBottom: 4 }}>⚠️ Error details:</div>
-                        <div style={{ fontFamily: "monospace", opacity: 0.9 }}>{testResult.error}</div>
-                        {testResult.error.includes("permission-denied") && (
-                          <div style={{ marginTop: 10, fontSize: "0.75rem", lineHeight: 1.4, opacity: 0.9, color: "var(--text)", background: "rgba(0,0,0,0.2)", padding: "8px", borderRadius: "4px" }}>
-                            💡 <strong>Action Required:</strong> Your Firestore security rules are blocking anonymous reads/writes.
-                            Go to your Firebase Console -&gt; Firestore Database -&gt; Rules, and update them to:
-                            <pre style={{ margin: "6px 0 0 0", padding: "6px", background: "rgba(0,0,0,0.3)", borderRadius: "4px", overflowX: "auto", fontFamily: "monospace", fontSize: "0.7rem", color: "var(--accent)" }}>{`allow read, write: if true;`}</pre>
+                      {testResult.configPresent && (
+                        <>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                            <span style={{ color: "var(--text-muted)" }}>SDK Initialization:</span>
+                            <span style={{ fontWeight: 600, color: testResult.initialized ? "var(--accent)" : "#f87171" }}>
+                              {testResult.initialized ? "⚙️ Ready" : "✗ Failed"}
+                            </span>
                           </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>Diagnostics not run. Click button to test.</div>
-                )}
-              </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "8px", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                            <span style={{ color: "var(--text-muted)" }}>Database Read:</span>
+                            <span style={{ fontWeight: 600, color: testResult.readSuccess ? "var(--accent)" : "#f87171" }}>
+                              {testResult.readSuccess ? "📖 Authorized & Working" : "✗ Access Denied / Failed"}
+                            </span>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ color: "var(--text-muted)" }}>Database Write:</span>
+                            <span style={{ fontWeight: 600, color: testResult.writeSuccess ? "var(--accent)" : "#f87171" }}>
+                              {testResult.writeSuccess ? "✍️ Authorized & Working" : "✗ Access Denied / Failed"}
+                            </span>
+                          </div>
+                        </>
+                      )}
+                      {testResult.projectId && (
+                        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", background: "rgba(0,0,0,0.15)", padding: "8px 12px", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.03)", marginTop: 6 }}>
+                          Project ID: <code style={{ color: "var(--accent2)" }}>{testResult.projectId}</code>
+                        </div>
+                      )}
+                      {testResult.error && (
+                        <div className="alert alert-error" style={{ fontSize: "0.8rem", padding: "12px", marginTop: 8, wordBreak: "break-word", background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.15)", color: "#fca5a5" }}>
+                          <div style={{ fontWeight: 600, marginBottom: 4 }}>⚠️ Error details:</div>
+                          <div style={{ fontFamily: "monospace", opacity: 0.9 }}>{testResult.error}</div>
+                          {testResult.error.includes("permission-denied") && (
+                            <div style={{ marginTop: 10, fontSize: "0.75rem", lineHeight: 1.4, opacity: 0.9, color: "var(--text)", background: "rgba(0,0,0,0.2)", padding: "8px", borderRadius: "4px" }}>
+                              💡 <strong>Action Required:</strong> Your Firestore security rules are blocking anonymous reads/writes.
+                              Go to your Firebase Console -&gt; Firestore Database -&gt; Rules, and update them to:
+                              <pre style={{ margin: "6px 0 0 0", padding: "6px", background: "rgba(0,0,0,0.3)", borderRadius: "4px", overflowX: "auto", fontFamily: "monospace", fontSize: "0.7rem", color: "var(--accent)" }}>{`allow read, write: if true;`}</pre>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>Diagnostics not run. Click button to test.</div>
+                  )}
+                </div>
+
+                <div className="diagnostics-card" style={{ padding: "16px", borderRadius: "10px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)", boxShadow: "inset 0 1px 1px rgba(255,255,255,0.05)", marginTop: "20px" }}>
+                  <h4 style={{ marginBottom: 16, fontWeight: 600, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.95rem" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>🧹 Book Metadata Repair & Normalization</span>
+                    <button type="button" onClick={repairMetadata} className="btn btn-sm" disabled={repairing} style={{ padding: "6px 12px", fontSize: "0.75rem", background: "var(--accent)", border: "none", borderRadius: "4px", cursor: "pointer", color: "#000", fontWeight: 600 }}>
+                      {repairing ? "Repairing..." : "Repair Metadata"}
+                    </button>
+                  </h4>
+                  <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: 16, lineHeight: 1.5 }}>
+                    Scans all books in the database and queries the Google Books API to replace low-quality/OpenLibrary covers and populate missing page counts and ratings.
+                  </p>
+                  {repairStatus && (
+                    <div style={{ fontSize: "0.8rem", color: "var(--accent)", background: "rgba(0,0,0,0.15)", padding: "10px 12px", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.03)" }}>
+                      {repairStatus}
+                    </div>
+                  )}
+                </div>
+              </>
             )}
           </div>
         )}
