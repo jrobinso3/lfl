@@ -21,6 +21,7 @@ export default function HomePage() {
     publisher?: string;
     pages?: number;
     googleBooksUrl?: string;
+    openLibraryUrl?: string;
     rating?: number;
     ratingsCount?: number;
   } | null>(null);
@@ -57,18 +58,22 @@ export default function HomePage() {
     setExtraDetails(null);
     
     const fetchSummary = async () => {
+      let desc = "";
+      let publishDate = "";
+      let publisher = "";
+      let pages = 0;
+      let googleBooksUrl = "";
+      let openLibraryUrl = "";
+      let rating: number | undefined = undefined;
+      let ratingsCount: number | undefined = undefined;
+      
+      // 1. Try Google Books API first
       try {
-        const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${selectedBook.isbn}`);
-        if (!res.ok) throw new Error();
+        const apiKey = process.env.NEXT_PUBLIC_GOOGLE_BOOKS_API_KEY;
+        const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${selectedBook.isbn}${apiKey ? `&key=${apiKey}` : ""}`);
+        if (!res.ok) throw new Error("Google Books request failed");
         const data = await res.json();
-        
-        let desc = "";
-        let publishDate = "";
-        let publisher = "";
-        let pages = 0;
-        let googleBooksUrl = "";
-        let rating: number | undefined = undefined;
-        let ratingsCount: number | undefined = undefined;
+        if (data.error) throw new Error(data.error.message || "Google Books error");
         
         if (data.items && data.items.length > 0) {
           const volumeInfo = data.items[0].volumeInfo;
@@ -80,31 +85,90 @@ export default function HomePage() {
           rating = volumeInfo.averageRating;
           ratingsCount = volumeInfo.ratingsCount;
         }
-        
-        if (isMounted) {
-          if (desc) {
-            setSummary(desc);
-          } else {
-            setSummary("No summary available for this edition in the Google Books archives.");
+      } catch (gErr) {
+        console.warn("Google Books API failed, falling back to OpenLibrary:", gErr);
+      }
+      
+      // 2. Fallback to OpenLibrary if description or rating is missing (or Google Books failed)
+      if (!desc || rating === undefined) {
+        try {
+          const res = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${selectedBook.isbn}&format=json&jscmd=details`);
+          if (res.ok) {
+            const data = await res.json();
+            const key = `ISBN:${selectedBook.isbn}`;
+            const bookData = data[key];
+            openLibraryUrl = bookData?.info_url ?? "";
+            
+            if (bookData?.details) {
+              const details = bookData.details;
+              if (details.description && !desc) {
+                const d = details.description;
+                desc = typeof d === "string" ? d : d.value ?? "";
+              }
+              publishDate = details.publish_date ?? publishDate;
+              if (details.publishers && details.publishers.length > 0) {
+                publisher = details.publishers.join(", ");
+              }
+              pages = details.number_of_pages ?? pages;
+            }
+            
+            // Try fetching from Work endpoint for description and ratings
+            if (bookData) {
+              const works = bookData.works || bookData.details?.works;
+              if (works && works.length > 0 && works[0].key) {
+                const workKey = works[0].key;
+                
+                if (!desc) {
+                  try {
+                    const workRes = await fetch(`https://openlibrary.org${workKey}.json`);
+                    if (workRes.ok) {
+                      const workData = await workRes.json();
+                      if (workData.description) {
+                        const wd = workData.description;
+                        desc = typeof wd === "string" ? wd : wd.value ?? "";
+                      }
+                    }
+                  } catch {}
+                }
+                
+                if (rating === undefined) {
+                  try {
+                    const ratingsRes = await fetch(`https://openlibrary.org${workKey}/ratings.json`);
+                    if (ratingsRes.ok) {
+                      const ratingsData = await ratingsRes.json();
+                      if (ratingsData.summary) {
+                        rating = ratingsData.summary.average;
+                        ratingsCount = ratingsData.summary.count;
+                      }
+                    }
+                  } catch {}
+                }
+              }
+            }
           }
-          setExtraDetails({
-            publishDate,
-            publisher,
-            pages,
-            googleBooksUrl,
-            rating,
-            ratingsCount
-          });
+        } catch (olErr) {
+          console.error("OpenLibrary fallback failed:", olErr);
         }
-      } catch (err) {
-        if (isMounted) {
-          setSummary("Could not load book summary. Please check your internet connection.");
-          setExtraDetails(null);
+      }
+      
+      if (isMounted) {
+        if (desc) {
+          setSummary(desc);
+        } else {
+          setSummary("No summary available for this edition in the archives.");
         }
-      } finally {
-        if (isMounted) {
-          setLoadingSummary(false);
-        }
+        setExtraDetails({
+          publishDate,
+          publisher,
+          pages,
+          googleBooksUrl,
+          openLibraryUrl,
+          rating,
+          ratingsCount
+        });
+      }
+      if (isMounted) {
+        setLoadingSummary(false);
       }
     };
     
@@ -336,6 +400,11 @@ export default function HomePage() {
                   {extraDetails?.googleBooksUrl && (
                     <a href={extraDetails.googleBooksUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: "0.8rem", color: "var(--accent)", textDecoration: "none", display: "flex", alignItems: "center", gap: 2 }}>
                       📖 Google Books
+                    </a>
+                  )}
+                  {extraDetails?.openLibraryUrl && (
+                    <a href={extraDetails.openLibraryUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: "0.8rem", color: "var(--accent)", textDecoration: "none", display: "flex", alignItems: "center", gap: 2 }}>
+                      📖 OpenLibrary
                     </a>
                   )}
                 </div>

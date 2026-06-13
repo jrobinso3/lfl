@@ -26,11 +26,14 @@ export default function LeavePage() {
     setScanning(false);
   };
 
-  // Trigger preview fetch when a valid ISBN length is reached
+  // Trigger preview fetch when a valid ISBN length is reached (debounced to avoid duplicate/rapid requests)
   useEffect(() => {
     const cleanIsbn = isbn.trim().replace(/[-\s]/g, "");
     if (cleanIsbn.length === 10 || cleanIsbn.length === 13) {
-      loadOpenLibraryPreview(cleanIsbn);
+      const timer = setTimeout(() => {
+        loadOpenLibraryPreview(cleanIsbn);
+      }, 300);
+      return () => clearTimeout(timer);
     } else {
       setPreviewBook(null);
     }
@@ -50,29 +53,76 @@ export default function LeavePage() {
         return;
       }
 
-      // 2. Fetch from Google Books API
-      const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbnValue}`);
-      if (!res.ok) throw new Error("Network response was not ok");
-      
-      const data = await res.json();
       let title = "Unknown Title";
       let author = "Unknown Author";
       let coverUrl = `https://covers.openlibrary.org/b/isbn/${isbnValue}-L.jpg`;
       let rating: number | undefined = undefined;
       let ratingsCount: number | undefined = undefined;
+      let success = false;
 
-      if (data.items && data.items.length > 0) {
-        const volumeInfo = data.items[0].volumeInfo;
-        title = volumeInfo.title ?? title;
-        author = volumeInfo.authors?.[0] ?? author;
-        let rawCoverUrl = volumeInfo.imageLinks?.thumbnail ?? volumeInfo.imageLinks?.smallThumbnail;
-        if (rawCoverUrl) {
-          coverUrl = rawCoverUrl.replace(/^http:\/\//i, "https://");
+      // 2. Fetch from Google Books API
+      try {
+        const apiKey = process.env.NEXT_PUBLIC_GOOGLE_BOOKS_API_KEY;
+        const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbnValue}${apiKey ? `&key=${apiKey}` : ""}`);
+        if (!res.ok) throw new Error("Network response was not ok");
+        
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message || "Google Books error");
+        
+        if (data.items && data.items.length > 0) {
+          const volumeInfo = data.items[0].volumeInfo;
+          title = volumeInfo.title ?? title;
+          author = volumeInfo.authors?.[0] ?? author;
+          let rawCoverUrl = volumeInfo.imageLinks?.thumbnail ?? volumeInfo.imageLinks?.smallThumbnail;
+          if (rawCoverUrl) {
+            coverUrl = rawCoverUrl.replace(/^http:\/\//i, "https://");
+          }
+          rating = volumeInfo.averageRating;
+          ratingsCount = volumeInfo.ratingsCount;
+          success = true;
         }
-        rating = volumeInfo.averageRating;
-        ratingsCount = volumeInfo.ratingsCount;
-      } else {
-        throw new Error("No book found in Google database");
+      } catch (gErr) {
+        console.warn("Google Books API failed, falling back to OpenLibrary:", gErr);
+      }
+
+      // 3. Fallback to OpenLibrary if Google Books failed/has no matches
+      if (!success) {
+        const res = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${isbnValue}&format=json&jscmd=data`);
+        if (res.ok) {
+          const data = await res.json();
+          const key = `ISBN:${isbnValue}`;
+          if (data[key]) {
+            const d = data[key];
+            title = d.title ?? title;
+            author = d.authors?.[0]?.name ?? author;
+            coverUrl = d.cover?.large ?? d.cover?.medium ?? coverUrl;
+            success = true;
+            
+            // Also try fetching ratings from OpenLibrary ratings API
+            try {
+              const detailsRes = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${isbnValue}&format=json&jscmd=details`);
+              if (detailsRes.ok) {
+                const detailsData = await detailsRes.json();
+                const bookData = detailsData[key];
+                const works = bookData?.works || bookData?.details?.works;
+                if (works && works.length > 0 && works[0].key) {
+                  const ratingsRes = await fetch(`https://openlibrary.org${works[0].key}/ratings.json`);
+                  if (ratingsRes.ok) {
+                    const ratingsData = await ratingsRes.json();
+                    if (ratingsData.summary) {
+                      rating = ratingsData.summary.average;
+                      ratingsCount = ratingsData.summary.count;
+                    }
+                  }
+                }
+              }
+            } catch {}
+          }
+        }
+      }
+
+      if (!success) {
+        throw new Error("Could not find book on Google Books or OpenLibrary");
       }
 
       setPreviewBook({ title, author, coverUrl, isbn: isbnValue, rating, ratingsCount });
@@ -294,8 +344,10 @@ export default function LeavePage() {
           rating: undefined as number | undefined,
           ratingsCount: undefined as number | undefined
         };
+        let success = false;
         try {
-          const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
+          const apiKey = process.env.NEXT_PUBLIC_GOOGLE_BOOKS_API_KEY;
+          const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}${apiKey ? `&key=${apiKey}` : ""}`);
           const data = await res.json();
           if (data.items && data.items.length > 0) {
             const volumeInfo = data.items[0].volumeInfo;
@@ -307,9 +359,48 @@ export default function LeavePage() {
             }
             googleData.rating = volumeInfo.averageRating;
             googleData.ratingsCount = volumeInfo.ratingsCount;
+            success = true;
           }
         } catch {
           // ignore
+        }
+
+        if (!success) {
+          try {
+            const res = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`);
+            if (res.ok) {
+              const data = await res.json();
+              const key = `ISBN:${cleanIsbn}`;
+              if (data[key]) {
+                const d = data[key];
+                googleData.title = d.title ?? googleData.title;
+                googleData.author = d.authors?.[0]?.name ?? googleData.author;
+                googleData.coverUrl = d.cover?.large ?? d.cover?.medium ?? googleData.coverUrl;
+                
+                // Fetch rating fallback from OpenLibrary
+                try {
+                  const detailsRes = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=details`);
+                  if (detailsRes.ok) {
+                    const detailsData = await detailsRes.json();
+                    const bookData = detailsData[key];
+                    const works = bookData?.works || bookData?.details?.works;
+                    if (works && works.length > 0 && works[0].key) {
+                      const ratingsRes = await fetch(`https://openlibrary.org${works[0].key}/ratings.json`);
+                      if (ratingsRes.ok) {
+                        const ratingsData = await ratingsRes.json();
+                        if (ratingsData.summary) {
+                          googleData.rating = ratingsData.summary.average;
+                          googleData.ratingsCount = ratingsData.summary.count;
+                        }
+                      }
+                    }
+                  }
+                } catch {}
+              }
+            }
+          } catch {
+            // ignore
+          }
         }
         bookData = { ...googleData, isbn: cleanIsbn };
       }
