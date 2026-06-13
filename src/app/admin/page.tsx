@@ -3,7 +3,6 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import TabBar from "@/components/TabBar";
 import DbStatus from "@/components/DbStatus";
-import { saveFirebaseConfig, clearFirebaseConfig } from "@/lib/firebase";
 import {
   subscribeBooks,
   subscribeComments,
@@ -23,14 +22,6 @@ export default function AdminPage() {
   const [comments, setComments] = useState<Comment[]>([]);
   const [activeTab, setActiveTab] = useState<"books"|"comments"|"settings">("books");
   const [loading, setLoading] = useState(true);
-  const [firebaseConfig, setFirebaseConfig] = useState({
-    apiKey: "",
-    authDomain: "",
-    projectId: "",
-    storageBucket: "",
-    messagingSenderId: "",
-    appId: ""
-  });
   const [testResult, setTestResult] = useState<FirebaseTestResult | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
 
@@ -74,55 +65,10 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const raw = localStorage.getItem("lfl-firebase-config");
-      if (raw) {
-        try {
-          const parsed = JSON.parse(raw);
-          setFirebaseConfig({
-            apiKey: parsed.apiKey ?? "",
-            authDomain: parsed.authDomain ?? "",
-            projectId: parsed.projectId ?? "",
-            storageBucket: parsed.storageBucket ?? "",
-            messagingSenderId: parsed.messagingSenderId ?? "",
-            appId: parsed.appId ?? ""
-          });
-        } catch {}
-      }
-    }
-  }, []);
-
-  useEffect(() => {
     if (activeTab === "settings") {
       runDiagnostics();
     }
   }, [activeTab, runDiagnostics]);
-
-  const handleSaveSettings = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
-      alert("API Key and Project ID are required!");
-      return;
-    }
-    saveFirebaseConfig(firebaseConfig);
-    alert("Firebase settings saved! The application will now sync cloud data.");
-    window.location.reload();
-  };
-
-  const handleClearSettings = () => {
-    if (!confirm("Are you sure you want to disconnect Firebase? Data will fall back to local device memory.")) return;
-    clearFirebaseConfig();
-    setFirebaseConfig({
-      apiKey: "",
-      authDomain: "",
-      projectId: "",
-      storageBucket: "",
-      messagingSenderId: "",
-      appId: ""
-    });
-    alert("Firebase settings cleared.");
-    window.location.reload();
-  };
 
   const returnBook = async (bookId: string) => {
     await updateBook(bookId, { status: "available", borrowedBy: null, borrowedAt: null });
@@ -224,12 +170,12 @@ export default function AdminPage() {
           })
         ) : (
           <div className="card" style={{ padding: "20px" }}>
-            <h3 style={{ marginBottom: 12, fontWeight: 700, fontSize: "1.05rem", color: "var(--accent)" }}>☁️ Firebase Firestore Configuration</h3>
+            <h3 style={{ marginBottom: 12, fontWeight: 700, fontSize: "1.05rem", color: "var(--accent)" }}>☁️ Firebase Connection Status</h3>
             <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: 20, lineHeight: 1.6 }}>
-              Enter your Firebase credentials below to enable multi-device real-time synchronization. If empty, the website runs in <strong>LocalStorage Fallback Mode</strong> (only saving data on the local browser).
+              Firestore real-time synchronization diagnostics. Database settings are configured via project environment variables.
             </p>
             {activeTab === "settings" && (
-              <div className="diagnostics-card" style={{ marginBottom: "24px", padding: "16px", borderRadius: "10px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)", boxShadow: "inset 0 1px 1px rgba(255,255,255,0.05)" }}>
+              <div className="diagnostics-card" style={{ padding: "16px", borderRadius: "10px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)", boxShadow: "inset 0 1px 1px rgba(255,255,255,0.05)" }}>
                 <h4 style={{ marginBottom: 16, fontWeight: 600, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.95rem" }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 6 }}>🔍 Connection Diagnostics</span>
                   <button type="button" onClick={runDiagnostics} className="btn btn-sm" disabled={testingConnection} style={{ padding: "6px 12px", fontSize: "0.75rem", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "4px", cursor: "pointer", color: "var(--text)" }}>
@@ -294,76 +240,6 @@ export default function AdminPage() {
                 )}
               </div>
             )}
-            <form onSubmit={handleSaveSettings}>
-              <div className="form-group">
-                <label className="form-label">API Key</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  placeholder="AIzaSy..."
-                  value={firebaseConfig.apiKey} 
-                  onChange={e => setFirebaseConfig({ ...firebaseConfig, apiKey: e.target.value })} 
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Project ID</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  placeholder="my-lfl-project"
-                  value={firebaseConfig.projectId} 
-                  onChange={e => setFirebaseConfig({ ...firebaseConfig, projectId: e.target.value })} 
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Auth Domain</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  placeholder="my-lfl-project.firebaseapp.com"
-                  value={firebaseConfig.authDomain} 
-                  onChange={e => setFirebaseConfig({ ...firebaseConfig, authDomain: e.target.value })} 
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Storage Bucket</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  placeholder="my-lfl-project.appspot.com"
-                  value={firebaseConfig.storageBucket} 
-                  onChange={e => setFirebaseConfig({ ...firebaseConfig, storageBucket: e.target.value })} 
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Messaging Sender ID</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  placeholder="847194729"
-                  value={firebaseConfig.messagingSenderId} 
-                  onChange={e => setFirebaseConfig({ ...firebaseConfig, messagingSenderId: e.target.value })} 
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">App ID</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  placeholder="1:847194729:web:abcdef"
-                  value={firebaseConfig.appId} 
-                  onChange={e => setFirebaseConfig({ ...firebaseConfig, appId: e.target.value })} 
-                />
-              </div>
-              <div style={{ display: "flex", gap: 12, marginTop: 20 }}>
-                <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>
-                  Save Configuration
-                </button>
-                <button type="button" className="btn btn-danger" style={{ flex: 1 }} onClick={handleClearSettings}>
-                  Disconnect Firebase
-                </button>
-              </div>
-            </form>
           </div>
         )}
       </main>
