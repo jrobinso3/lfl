@@ -253,7 +253,7 @@ export default function TakePage() {
       const user = getCurrentUser();
       const updated = await updateBook(foundBook.id, {
         status: "borrowed",
-        borrowedBy: user?.username ?? "anonymous",
+        borrowedBy: user?.displayName ?? user?.username ?? "anonymous",
         borrowedAt: new Date().toISOString()
       });
       setResult({ type: "success", msg: `Enjoy "${updated.title}"! 📖 Please bring it back when you're done.` });

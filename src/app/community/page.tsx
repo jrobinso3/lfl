@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import TabBar from "@/components/TabBar";
 import DbStatus from "@/components/DbStatus";
-import { subscribeComments, addComment, getCurrentUser, type Comment } from "@/lib/db";
+import { subscribeComments, addComment, deleteComment, getCurrentUser, type Comment } from "@/lib/db";
 
 export default function CommunityPage() {
   const [comments, setComments] = useState<Comment[]>([]);
@@ -24,12 +24,21 @@ export default function CommunityPage() {
     return unsub;
   }, []);
 
+  const handleDeleteComment = async (commentId: string) => {
+    if (!confirm("Are you sure you want to delete this post?")) return;
+    try {
+      await deleteComment(commentId);
+    } catch {
+      alert("Failed to delete comment.");
+    }
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!content.trim() || !me) return;
     setSubmitting(true); setResult(null);
     try {
-      await addComment({ userId: me.id, username: me.username, type, content: content.trim() });
+      await addComment({ userId: me.id, username: me.username, displayName: me.displayName || me.username, type, content: content.trim() });
       setContent(""); setResult({kind:"success", msg:"Posted!"});
     } catch { setResult({kind:"error", msg:"Failed to post."}); }
     setSubmitting(false);
@@ -86,17 +95,29 @@ export default function CommunityPage() {
             <h3>No posts yet</h3>
             <p>Be the first to leave a comment!</p>
           </div>
-        ) : comments.map(c => (
-          <div key={c.id} className="card comment-card">
-            <div className="comment-header">
-              <div className="comment-avatar">{c.username[0].toUpperCase()}</div>
-              <span className="comment-user">{c.username}</span>
-              <span className={`comment-type ${c.type}`}>{c.type === "request" ? "📌 Request" : "💬 Comment"}</span>
-              <span className="comment-time">{timeAgo(c.createdAt)}</span>
+        ) : comments.map(c => {
+          const displaySender = c.displayName || c.username;
+          return (
+            <div key={c.id} className="card comment-card">
+              <div className="comment-header">
+                <div className="comment-avatar">{displaySender[0].toUpperCase()}</div>
+                <span className="comment-user">{displaySender}</span>
+                <span className={`comment-type ${c.type}`}>{c.type === "request" ? "📌 Request" : "💬 Comment"}</span>
+                <span className="comment-time">{timeAgo(c.createdAt)}</span>
+                {me?.role === "admin" && (
+                  <button 
+                    className="btn btn-danger btn-sm" 
+                    style={{ marginLeft: "auto", padding: "4px 8px", fontSize: "0.75rem", borderRadius: "4px" }}
+                    onClick={() => handleDeleteComment(c.id)}
+                  >
+                    🗑
+                  </button>
+                )}
+              </div>
+              <div className="comment-content">{c.content}</div>
             </div>
-            <div className="comment-content">{c.content}</div>
-          </div>
-        ))}
+          );
+        })}
       </main>
       <TabBar />
     </div>

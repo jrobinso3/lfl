@@ -42,11 +42,11 @@ export interface Book {
 }
 
 export interface User {
-  id: string; username: string; passwordHash: string; role: "user" | "admin";
+  id: string; username: string; displayName: string; passwordHash: string; role: "user" | "admin";
 }
 
 export interface Comment {
-  id: string; userId: string; username: string;
+  id: string; userId: string; username: string; displayName?: string;
   type: "comment" | "request"; content: string; createdAt: string;
 }
 
@@ -60,7 +60,7 @@ export interface DbSchema {
 
 const SEED: DbSchema = {
   books: [
-    { id: "book-1", isbn: "9780140449136", title: "The Odyssey", author: "Homer",
+    { id: "book-1", isbn: "9780140449136", title: "Crime and Punishment", author: "Fyodor Dostoevsky",
       coverUrl: "https://covers.openlibrary.org/b/isbn/9780140449136-L.jpg",
       status: "available", borrowedBy: null, borrowedAt: null,
       addedBy: "system", addedAt: "2026-06-09T20:00:00.000Z" },
@@ -74,12 +74,12 @@ const SEED: DbSchema = {
       addedBy: "system", addedAt: "2026-06-09T20:00:00.000Z" },
   ],
   users: [
-    { id: "user-admin", username: "admin",
+    { id: "user-admin", username: "admin", displayName: "Admin",
       passwordHash: "ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f",
       role: "admin" },
   ],
   comments: [
-    { id: "comment-1", userId: "user-admin", username: "admin",
+    { id: "comment-1", userId: "user-admin", username: "admin", displayName: "Admin",
       type: "comment",
       content: "Welcome to the Robinson ReposiStory Little Free Library! Feel free to browse, take, or leave books.",
       createdAt: "2026-06-09T21:00:00.000Z" },
@@ -92,7 +92,17 @@ function readLocal(): DbSchema {
   if (typeof window === "undefined") return SEED;
   try {
     const raw = localStorage.getItem("lfl-db");
-    if (raw) return JSON.parse(raw) as DbSchema;
+    if (raw) {
+      const parsed = JSON.parse(raw) as DbSchema;
+      // Auto-repair book-1 seed metadata mismatch if present
+      const book1 = parsed.books?.find(b => b.id === "book-1");
+      if (book1 && book1.title === "The Odyssey" && book1.isbn === "9780140449136") {
+        book1.title = "Crime and Punishment";
+        book1.author = "Fyodor Dostoevsky";
+        writeLocal(parsed);
+      }
+      return parsed;
+    }
   } catch {}
   // First visit — seed and persist
   writeLocal(SEED);
@@ -107,7 +117,7 @@ function writeLocal(data: DbSchema) {
 
 // ─── Session helpers (localStorage) ──────────────────────────────────────────
 
-export interface SessionUser { id: string; username: string; role: "user" | "admin"; }
+export interface SessionUser { id: string; username: string; displayName: string; role: "user" | "admin"; }
 
 export function hashPassword(s: string): string {
   // Simple deterministic hash; mirrors the SHA-256 used server-side for the seed admin account.
@@ -246,6 +256,59 @@ export async function addUser(user: Omit<User, "id">): Promise<User> {
   db.users.push(nu);
   writeLocal(db);
   return nu;
+}
+
+export async function getUsers(): Promise<User[]> {
+  const fbDb = getFirebaseDb();
+  if (fbDb) {
+    try {
+      const snap = await getDocs(collection(fbDb, "users"));
+      setLastDbError(null);
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as User));
+    } catch (err) {
+      setLastDbError(err);
+      console.error("Firestore getUsers error, falling back to local:", err);
+    }
+  }
+  return readLocal().users;
+}
+
+export async function deleteUser(id: string): Promise<void> {
+  const fbDb = getFirebaseDb();
+  if (fbDb) {
+    try {
+      await deleteDoc(doc(fbDb, "users", id));
+      setLastDbError(null);
+      return;
+    } catch (err) {
+      setLastDbError(err);
+      console.error("Firestore deleteUser error, falling back to local:", err);
+    }
+  }
+  const db = readLocal();
+  db.users = db.users.filter(u => u.id !== id);
+  writeLocal(db);
+}
+
+export async function updateUser(id: string, updates: Partial<User>): Promise<User> {
+  const fbDb = getFirebaseDb();
+  if (fbDb) {
+    try {
+      await updateDoc(doc(fbDb, "users", id), updates as Record<string, unknown>);
+      setLastDbError(null);
+      const users = await getUsers();
+      return users.find(u => u.id === id)!;
+    } catch (err) {
+      setLastDbError(err);
+      console.error("Firestore updateUser error, falling back to local:", err);
+    }
+  }
+  const db = readLocal();
+  const i = db.users.findIndex(u => u.id === id);
+  if (i === -1) throw new Error("User not found");
+  db.users[i] = { ...db.users[i], ...updates };
+  writeLocal(db);
+  return db.users[i];
 }
 
 // ─── Comments ─────────────────────────────────────────────────────────────────

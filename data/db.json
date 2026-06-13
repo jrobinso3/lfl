@@ -3,8 +3,8 @@
     {
       "id": "book-1",
       "isbn": "9780140449136",
-      "title": "The Odyssey",
-      "author": "Homer",
+      "title": "Crime and Punishment",
+      "author": "Fyodor Dostoevsky",
       "coverUrl": "https://covers.openlibrary.org/b/isbn/9780140449136-L.jpg",
       "status": "available",
       "borrowedBy": null,

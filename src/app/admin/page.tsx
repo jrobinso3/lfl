@@ -164,7 +164,8 @@ export default function AdminPage() {
         <span className="nav-logo">⚙️ Admin</span>
         <div className="nav-actions">
           <DbStatus />
-          <span style={{fontSize:"0.75rem", color:"var(--accent)"}}>Logged in as {me.username}</span>
+          <Link href="/admin/users" className="nav-btn">👥 Manage Users</Link>
+          <span style={{fontSize:"0.75rem", color:"var(--accent)"}}>Logged in as {me.displayName || me.username}</span>
         </div>
       </header>
       <main className="page fade-up">
@@ -206,18 +207,21 @@ export default function AdminPage() {
           ))
         ) : activeTab === "comments" ? (
           comments.length === 0 ? <div className="empty-state"><div className="empty-icon">💬</div><h3>No posts yet</h3></div> :
-          comments.map(c => (
-            <div key={c.id} className="card comment-card">
-              <div className="comment-header">
-                <div className="comment-avatar">{c.username[0].toUpperCase()}</div>
-                <span className="comment-user">{c.username}</span>
-                <span className={`comment-type ${c.type}`}>{c.type === "request" ? "📌 Request" : "💬"}</span>
-                <span className="comment-time">{new Date(c.createdAt).toLocaleDateString()}</span>
-                <button className="btn btn-danger btn-sm" style={{marginLeft:"auto"}} onClick={() => removeComment(c.id)}>🗑</button>
+          comments.map(c => {
+            const displaySender = c.displayName || c.username;
+            return (
+              <div key={c.id} className="card comment-card">
+                <div className="comment-header">
+                  <div className="comment-avatar">{displaySender[0].toUpperCase()}</div>
+                  <span className="comment-user">{displaySender}</span>
+                  <span className={`comment-type ${c.type}`}>{c.type === "request" ? "📌 Request" : "💬"}</span>
+                  <span className="comment-time">{new Date(c.createdAt).toLocaleDateString()}</span>
+                  <button className="btn btn-danger btn-sm" style={{marginLeft:"auto"}} onClick={() => removeComment(c.id)}>🗑</button>
+                </div>
+                <div className="comment-content">{c.content}</div>
               </div>
-              <div className="comment-content">{c.content}</div>
-            </div>
-          ))
+            );
+          })
         ) : (
           <div className="card" style={{ padding: "20px" }}>
             <h3 style={{ marginBottom: 12, fontWeight: 700, fontSize: "1.05rem", color: "var(--accent)" }}>☁️ Firebase Firestore Configuration</h3>

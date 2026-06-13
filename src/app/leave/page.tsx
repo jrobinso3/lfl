@@ -306,7 +306,7 @@ export default function LeavePage() {
         status: "available",
         borrowedBy: null,
         borrowedAt: null,
-        addedBy: user?.username ?? "anonymous"
+        addedBy: user?.displayName ?? user?.username ?? "anonymous"
       });
 
       setFoundBook(book);
