@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import TabBar from "@/components/TabBar";
 import DbStatus from "@/components/DbStatus";
@@ -37,81 +37,116 @@ export default function HomePage() {
     return unsub;
   }, []);
 
-  // Background enrichment: for any book missing rating/pages/cover, fetch from OpenLibrary
-  // and persist so catalog cards show populated data without requiring a modal open.
+  // Track which book IDs have already been enriched this session.
+  // Using a ref means allBooks state changes (from updateBook writes) don't
+  // cancel an in-progress enrichment loop.
+  const enrichedRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     if (allBooks.length === 0) return;
-    let cancelled = false;
 
+    // Only queue books we haven't processed yet AND that are missing data
     const needsEnrichment = allBooks.filter(b =>
-      b.rating === undefined || !b.pages || b.pages === 0 || !b.coverUrl
+      !enrichedRef.current.has(b.id) &&
+      (!b.coverUrl || b.rating === undefined || !b.pages || b.pages === 0)
     );
     if (needsEnrichment.length === 0) return;
 
+    // Mark them all immediately so a re-render triggered by updateBook
+    // doesn't queue the same books again
+    needsEnrichment.forEach(b => enrichedRef.current.add(b.id));
+
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_BOOKS_API_KEY;
+
     const enrich = async () => {
       for (const book of needsEnrichment) {
-        if (cancelled) break;
         try {
-          // 1. Fetch edition details (cover, pages)
-          const detailsRes = await fetch(
-            `https://openlibrary.org/api/books?bibkeys=ISBN:${book.isbn}&format=json&jscmd=details`
-          );
-          if (!detailsRes.ok || cancelled) continue;
-          const detailsData = await detailsRes.json();
-          const bk = detailsData[`ISBN:${book.isbn}`];
-          if (!bk) continue;
-
           const updates: Partial<Book> = {};
 
-          // Cover: use the cover ID from details to build a proper large URL
-          if (!book.coverUrl) {
-            const coverIds: number[] = bk.details?.covers ?? [];
-            const validId = coverIds.find((id: number) => id > 0);
-            if (validId) {
-              updates.coverUrl = `https://covers.openlibrary.org/b/id/${validId}-L.jpg`;
-            } else if (bk.thumbnail_url) {
-              // thumbnail_url is -S size; upgrade to -L
-              updates.coverUrl = bk.thumbnail_url.replace(/-S\.jpg$/, "-L.jpg");
-            }
-          }
-
-          // Pages
-          if ((!book.pages || book.pages === 0) && bk.details?.number_of_pages) {
-            updates.pages = bk.details.number_of_pages;
-          }
-
-          // 2. Fetch ratings from Work endpoint
-          if (book.rating === undefined) {
-            const works: { key: string }[] = bk.details?.works ?? [];
-            if (works.length > 0) {
-              await new Promise(r => setTimeout(r, 300));
-              if (cancelled) break;
-              const ratingsRes = await fetch(
-                `https://openlibrary.org${works[0].key}/ratings.json`
+          // 1. Try Google Books first (faster, has covers + ratings + pages in one call)
+          if (apiKey) {
+            try {
+              const gRes = await fetch(
+                `https://www.googleapis.com/books/v1/volumes?q=isbn:${book.isbn}&key=${apiKey}`
               );
-              if (ratingsRes.ok && !cancelled) {
-                const rd = await ratingsRes.json();
-                if (rd.summary?.average) {
-                  updates.rating = rd.summary.average;
-                  updates.ratingsCount = rd.summary.count;
+              if (gRes.ok) {
+                const gData = await gRes.json();
+                if (!gData.error && gData.items?.length > 0) {
+                  const vi = gData.items[0].volumeInfo;
+                  if (!book.coverUrl) {
+                    const raw = vi.imageLinks?.thumbnail ?? vi.imageLinks?.smallThumbnail;
+                    if (raw) updates.coverUrl = raw.replace(/^http:\/\//i, "https://");
+                  }
+                  if (book.rating === undefined && vi.averageRating !== undefined) {
+                    updates.rating = vi.averageRating;
+                    updates.ratingsCount = vi.ratingsCount;
+                  }
+                  if ((!book.pages || book.pages === 0) && vi.pageCount) {
+                    updates.pages = vi.pageCount;
+                  }
+                }
+              }
+            } catch { /* fall through to OpenLibrary */ }
+          }
+
+          // 2. OpenLibrary fallback for anything still missing
+          const stillNeedsCover = !book.coverUrl && !updates.coverUrl;
+          const stillNeedsRating = book.rating === undefined && updates.rating === undefined;
+          const stillNeedsPages = (!book.pages || book.pages === 0) && !updates.pages;
+
+          if (stillNeedsCover || stillNeedsRating || stillNeedsPages) {
+            await new Promise(r => setTimeout(r, 200));
+            const olRes = await fetch(
+              `https://openlibrary.org/api/books?bibkeys=ISBN:${book.isbn}&format=json&jscmd=details`
+            );
+            if (olRes.ok) {
+              const olData = await olRes.json();
+              const bk = olData[`ISBN:${book.isbn}`];
+              if (bk) {
+                if (stillNeedsCover) {
+                  const coverIds: number[] = bk.details?.covers ?? [];
+                  const validId = coverIds.find((id: number) => id > 0);
+                  if (validId) {
+                    updates.coverUrl = `https://covers.openlibrary.org/b/id/${validId}-L.jpg`;
+                  } else if (bk.thumbnail_url) {
+                    updates.coverUrl = bk.thumbnail_url.replace(/-S\.jpg$/, "-L.jpg");
+                  }
+                }
+                if (stillNeedsPages && bk.details?.number_of_pages) {
+                  updates.pages = bk.details.number_of_pages;
+                }
+                if (stillNeedsRating) {
+                  const works: { key: string }[] = bk.details?.works ?? [];
+                  if (works.length > 0) {
+                    await new Promise(r => setTimeout(r, 200));
+                    const rRes = await fetch(
+                      `https://openlibrary.org${works[0].key}/ratings.json`
+                    );
+                    if (rRes.ok) {
+                      const rd = await rRes.json();
+                      if (rd.summary?.average) {
+                        updates.rating = rd.summary.average;
+                        updates.ratingsCount = rd.summary.count;
+                      }
+                    }
+                  }
                 }
               }
             }
           }
 
-          if (Object.keys(updates).length > 0 && !cancelled) {
+          if (Object.keys(updates).length > 0) {
             updateBook(book.id, updates).catch(() => {});
           }
-        } catch {
-          // Non-fatal — skip this book
-        }
-        // Throttle between books to be polite to the API
-        await new Promise(r => setTimeout(r, 300));
+        } catch { /* non-fatal, skip this book */ }
+
+        // Polite throttle between books
+        await new Promise(r => setTimeout(r, 400));
       }
     };
 
     enrich();
-    return () => { cancelled = true; };
+    // No cleanup cancellation — the ref guard prevents duplicate work
   }, [allBooks]);
 
   const handleDeleteBook = async (bookId: string) => {
