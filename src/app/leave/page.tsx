@@ -9,7 +9,7 @@ export default function LeavePage() {
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState<{ type: "success"|"error"|"info"; msg: string } | null>(null);
   const [foundBook, setFoundBook] = useState<Book | null>(null);
-  const [previewBook, setPreviewBook] = useState<{ title: string; author: string; coverUrl: string; isbn: string; rating?: number; ratingsCount?: number; } | null>(null);
+  const [previewBook, setPreviewBook] = useState<{ title: string; author: string; coverUrl: string; isbn: string; rating?: number; ratingsCount?: number; pages?: number; } | null>(null);
   const [fetchingPreview, setFetchingPreview] = useState(false);
   const [loading, setLoading] = useState(false);
   const scannerRef = useRef<unknown>(null);
@@ -58,6 +58,7 @@ export default function LeavePage() {
       let coverUrl = `https://covers.openlibrary.org/b/isbn/${isbnValue}-L.jpg`;
       let rating: number | undefined = undefined;
       let ratingsCount: number | undefined = undefined;
+      let pages: number | undefined = undefined;
       let success = false;
 
       // 2. Fetch from Google Books API
@@ -79,6 +80,7 @@ export default function LeavePage() {
           }
           rating = volumeInfo.averageRating;
           ratingsCount = volumeInfo.ratingsCount;
+          pages = volumeInfo.pageCount;
           success = true;
         }
       } catch (gErr) {
@@ -98,12 +100,17 @@ export default function LeavePage() {
             coverUrl = d.cover?.large ?? d.cover?.medium ?? coverUrl;
             success = true;
             
-            // Also try fetching ratings from OpenLibrary ratings API
+            // Also try fetching ratings and pages from OpenLibrary ratings API
             try {
               const detailsRes = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${isbnValue}&format=json&jscmd=details`);
               if (detailsRes.ok) {
                 const detailsData = await detailsRes.json();
                 const bookData = detailsData[key];
+                
+                if (bookData?.details) {
+                  pages = bookData.details.number_of_pages;
+                }
+                
                 const works = bookData?.works || bookData?.details?.works;
                 if (works && works.length > 0 && works[0].key) {
                   const ratingsRes = await fetch(`https://openlibrary.org${works[0].key}/ratings.json`);
@@ -125,7 +132,7 @@ export default function LeavePage() {
         throw new Error("Could not find book on Google Books or OpenLibrary");
       }
 
-      setPreviewBook({ title, author, coverUrl, isbn: isbnValue, rating, ratingsCount });
+      setPreviewBook({ title, author, coverUrl, isbn: isbnValue, rating, ratingsCount, pages });
     } catch (err) {
       console.warn("Google Books lookup failed, using fallback:", err);
       setPreviewBook({
@@ -342,7 +349,8 @@ export default function LeavePage() {
           author: "Unknown Author", 
           coverUrl: `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg`,
           rating: undefined as number | undefined,
-          ratingsCount: undefined as number | undefined
+          ratingsCount: undefined as number | undefined,
+          pages: undefined as number | undefined
         };
         let success = false;
         try {
@@ -359,6 +367,7 @@ export default function LeavePage() {
             }
             googleData.rating = volumeInfo.averageRating;
             googleData.ratingsCount = volumeInfo.ratingsCount;
+            googleData.pages = volumeInfo.pageCount;
             success = true;
           }
         } catch {
@@ -377,12 +386,17 @@ export default function LeavePage() {
                 googleData.author = d.authors?.[0]?.name ?? googleData.author;
                 googleData.coverUrl = d.cover?.large ?? d.cover?.medium ?? googleData.coverUrl;
                 
-                // Fetch rating fallback from OpenLibrary
+                // Fetch rating and page fallback from OpenLibrary
                 try {
                   const detailsRes = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=details`);
                   if (detailsRes.ok) {
                     const detailsData = await detailsRes.json();
                     const bookData = detailsData[key];
+
+                    if (bookData?.details) {
+                      googleData.pages = bookData.details.number_of_pages;
+                    }
+                    
                     const works = bookData?.works || bookData?.details?.works;
                     if (works && works.length > 0 && works[0].key) {
                       const ratingsRes = await fetch(`https://openlibrary.org${works[0].key}/ratings.json`);
@@ -416,7 +430,8 @@ export default function LeavePage() {
         borrowedAt: null,
         addedBy: user?.displayName ?? user?.username ?? "anonymous",
         rating: bookData.rating,
-        ratingsCount: bookData.ratingsCount
+        ratingsCount: bookData.ratingsCount,
+        pages: bookData.pages
       });
 
       setFoundBook(book);
@@ -524,11 +539,14 @@ export default function LeavePage() {
                   <div className="book-author">{previewBook.author}</div>
                   <div className="book-isbn" style={{ marginTop: 4 }}>ISBN: {previewBook.isbn}</div>
                   {previewBook.rating && (
-                    <div style={{ fontSize: "0.8rem", color: "#fbbf24", display: "flex", alignItems: "center", gap: "4px", marginTop: "6px" }}>
+                    <div style={{ fontSize: "0.8rem", color: "#fbbf24", display: "flex", alignItems: "center", gap: "4px", marginTop: "6px", flexWrap: "wrap" }}>
                       {'★'.repeat(Math.round(previewBook.rating)) + '☆'.repeat(5 - Math.round(previewBook.rating))}
                       <span style={{ color: "var(--text)", fontWeight: 600 }}>{previewBook.rating.toFixed(1)}</span>
                       {previewBook.ratingsCount && (
                         <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>({previewBook.ratingsCount} ratings)</span>
+                      )}
+                      {previewBook.pages && previewBook.pages > 0 && (
+                        <span style={{ color: "var(--text-muted)", fontSize: "0.75rem", marginLeft: "8px", borderLeft: "1px solid var(--border)", paddingLeft: "8px" }}>📖 {previewBook.pages} pages</span>
                       )}
                     </div>
                   )}
@@ -548,9 +566,12 @@ export default function LeavePage() {
                 <div className="book-title">{foundBook.title}</div>
                 <div className="book-author">{foundBook.author}</div>
                 {foundBook.rating && (
-                  <div style={{ fontSize: "0.8rem", color: "#fbbf24", display: "flex", alignItems: "center", gap: "4px", marginTop: "2px", marginBottom: "4px" }}>
+                  <div style={{ fontSize: "0.8rem", color: "#fbbf24", display: "flex", alignItems: "center", gap: "4px", marginTop: "2px", marginBottom: "4px", flexWrap: "wrap" }}>
                     {'★'.repeat(Math.round(foundBook.rating)) + '☆'.repeat(5 - Math.round(foundBook.rating))}
-                    <span style={{ color: "var(--text-muted)" }}>({foundBook.rating.toFixed(1)})</span>
+                    <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>({foundBook.rating.toFixed(1)})</span>
+                    {foundBook.pages && foundBook.pages > 0 && (
+                      <span style={{ color: "var(--text-muted)", fontSize: "0.75rem", marginLeft: "6px", borderLeft: "1px solid var(--border)", paddingLeft: "6px" }}>📖 {foundBook.pages} p.</span>
+                    )}
                   </div>
                 )}
                 <span className="book-status available">✓ Added</span>

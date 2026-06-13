@@ -41,6 +41,7 @@ export interface Book {
   addedBy: string; addedAt: string;
   rating?: number;
   ratingsCount?: number;
+  pages?: number;
 }
 
 export interface User {
@@ -63,20 +64,20 @@ export interface DbSchema {
 const SEED: DbSchema = {
   books: [
     { id: "book-1", isbn: "9780140449136", title: "Crime and Punishment", author: "Fyodor Dostoevsky",
-      coverUrl: "https://covers.openlibrary.org/b/isbn/9780140449136-L.jpg",
+      coverUrl: "https://books.google.com/books/content?id=uT1HDAAAQBAJ&printsec=frontcover&img=1&zoom=1&source=gbs_api",
       status: "available", borrowedBy: null, borrowedAt: null,
       addedBy: "system", addedAt: "2026-06-09T20:00:00.000Z",
-      rating: 4.2, ratingsCount: 310500 },
+      rating: 4.2, ratingsCount: 310500, pages: 545 },
     { id: "book-2", isbn: "9780451524935", title: "1984", author: "George Orwell",
-      coverUrl: "https://covers.openlibrary.org/b/isbn/9780451524935-L.jpg",
+      coverUrl: "https://books.google.com/books/content?id=yxv1LK5gyV4C&printsec=frontcover&img=1&zoom=1&source=gbs_api",
       status: "available", borrowedBy: null, borrowedAt: null,
       addedBy: "system", addedAt: "2026-06-09T20:00:00.000Z",
-      rating: 4.2, ratingsCount: 4100000 },
+      rating: 4.2, ratingsCount: 4100000, pages: 328 },
     { id: "book-3", isbn: "9780316769174", title: "The Catcher in the Rye", author: "J.D. Salinger",
-      coverUrl: "https://covers.openlibrary.org/b/isbn/9780316769174-L.jpg",
+      coverUrl: "https://books.google.com/books/content?id=DK7zMQAACAAJ&printsec=frontcover&img=1&zoom=1&source=gbs_api",
       status: "available", borrowedBy: null, borrowedAt: null,
       addedBy: "system", addedAt: "2026-06-09T20:00:00.000Z",
-      rating: 3.8, ratingsCount: 3200000 },
+      rating: 3.8, ratingsCount: 3200000, pages: 277 },
   ],
   users: [
     { id: "user-admin", username: "admin", displayName: "Admin",
@@ -106,6 +107,28 @@ function readLocal(): DbSchema {
         book1.author = "Fyodor Dostoevsky";
         writeLocal(parsed);
       }
+      
+      // Auto-migrate seed book cover URLs to Google Books cover URLs
+      let updated = false;
+      const b1 = parsed.books?.find(b => b.id === "book-1");
+      if (b1 && b1.coverUrl.includes("openlibrary.org")) {
+        b1.coverUrl = "https://books.google.com/books/content?id=uT1HDAAAQBAJ&printsec=frontcover&img=1&zoom=1&source=gbs_api";
+        updated = true;
+      }
+      const b2 = parsed.books?.find(b => b.id === "book-2");
+      if (b2 && b2.coverUrl.includes("openlibrary.org")) {
+        b2.coverUrl = "https://books.google.com/books/content?id=yxv1LK5gyV4C&printsec=frontcover&img=1&zoom=1&source=gbs_api";
+        updated = true;
+      }
+      const b3 = parsed.books?.find(b => b.id === "book-3");
+      if (b3 && b3.coverUrl.includes("openlibrary.org")) {
+        b3.coverUrl = "https://books.google.com/books/content?id=DK7zMQAACAAJ&printsec=frontcover&img=1&zoom=1&source=gbs_api";
+        updated = true;
+      }
+      if (updated) {
+        writeLocal(parsed);
+      }
+      
       return parsed;
     }
   } catch {}

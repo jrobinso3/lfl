@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import TabBar from "@/components/TabBar";
 import DbStatus from "@/components/DbStatus";
-import { subscribeBooks, deleteBook, getCurrentUser, type Book, type SessionUser } from "@/lib/db";
+import { subscribeBooks, deleteBook, updateBook, getCurrentUser, type Book, type SessionUser } from "@/lib/db";
 import heroImg from "./img/IMG_0702.jpeg";
 
 export default function HomePage() {
@@ -158,6 +158,26 @@ export default function HomePage() {
         }
       }
       
+      // Auto-upgrade database records if we successfully fetched better metadata (Google Books covers, ratings, pages)
+      const updates: Partial<Book> = {};
+      if (googleCoverUrl && (selectedBook.coverUrl.includes("openlibrary.org") || !selectedBook.coverUrl)) {
+        updates.coverUrl = googleCoverUrl;
+      }
+      if (rating !== undefined && selectedBook.rating === undefined) {
+        updates.rating = rating;
+      }
+      if (ratingsCount !== undefined && selectedBook.ratingsCount === undefined) {
+        updates.ratingsCount = ratingsCount;
+      }
+      if (pages > 0 && (!selectedBook.pages || selectedBook.pages === 0)) {
+        updates.pages = pages;
+      }
+      if (Object.keys(updates).length > 0) {
+        updateBook(selectedBook.id, updates).catch(err => {
+          console.error("Failed to auto-upgrade book details in DB:", err);
+        });
+      }
+      
       if (isMounted) {
         if (desc) {
           setSummary(desc);
@@ -299,13 +319,22 @@ export default function HomePage() {
                 <div className="book-info" style={{ flex: 1 }}>
                   <div className="book-title">{book.title}</div>
                   <div className="book-author">{book.author}</div>
-                  <div className="book-isbn">ISBN: {book.isbn}</div>
-                  {book.rating && (
-                    <div className="book-rating" style={{ fontSize: "0.8rem", color: "#fbbf24", display: "flex", alignItems: "center", gap: "4px", marginTop: "4px" }}>
+                  {book.rating ? (
+                    <div className="book-rating" style={{ fontSize: "0.8rem", color: "#fbbf24", display: "flex", alignItems: "center", gap: "4px", marginTop: "4px", flexWrap: "wrap" }}>
                       {'★'.repeat(Math.round(book.rating)) + '☆'.repeat(5 - Math.round(book.rating))}
                       <span style={{ color: "var(--text)", fontWeight: 600 }}>{book.rating.toFixed(1)}</span>
                       {book.ratingsCount && (
                         <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>({book.ratingsCount.toLocaleString()})</span>
+                      )}
+                      {book.pages && book.pages > 0 && (
+                        <span style={{ color: "var(--text-muted)", fontSize: "0.75rem", marginLeft: "8px", borderLeft: "1px solid var(--border)", paddingLeft: "8px" }}>📖 {book.pages} pages</span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="book-rating" style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "8px", marginTop: "4px" }}>
+                      <span>☆☆☆☆☆ <span style={{ fontSize: "0.7rem" }}>(No ratings)</span></span>
+                      {book.pages && book.pages > 0 && (
+                        <span style={{ borderLeft: "1px solid var(--border)", paddingLeft: "8px" }}>📖 {book.pages} pages</span>
                       )}
                     </div>
                   )}
