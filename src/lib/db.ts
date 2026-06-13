@@ -158,7 +158,22 @@ export async function getBooks(): Promise<Book[]> {
 }
 
 export async function getBookByIsbn(isbn: string): Promise<Book | undefined> {
-  const books = await getBooks();
+  const fbDb = getFirebaseDb();
+  if (fbDb) {
+    try {
+      const q = query(collection(fbDb, "books"), where("isbn", "==", isbn), limit(1));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        setLastDbError(null);
+        return { id: snap.docs[0].id, ...snap.docs[0].data() } as Book;
+      }
+      return undefined;
+    } catch (err) {
+      setLastDbError(err);
+      console.error("Firestore getBookByIsbn error, falling back to local:", err);
+    }
+  }
+  const books = readLocal().books;
   return books.find(b => b.isbn === isbn);
 }
 
